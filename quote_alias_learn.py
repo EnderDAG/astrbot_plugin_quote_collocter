@@ -14,7 +14,7 @@ import time
 from collections import deque
 
 import quote_db
-from quote_core import logger
+from astrbot.api import logger
 from quote_identity import IDENTITY
 
 BUFFER_MAX = 160

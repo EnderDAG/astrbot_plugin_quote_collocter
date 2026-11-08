@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from astrbot import logger
+from astrbot.api import logger
 
 import quote_db
 from quote_core import META, group_ids, list_image_files

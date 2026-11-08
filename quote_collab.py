@@ -20,7 +20,6 @@ import asyncio
 import hashlib
 import hmac
 import json
-import logging
 import re
 import secrets
 import sqlite3
@@ -42,7 +41,7 @@ from quote_core import (
 from quote_identity import IDENTITY
 from quote_semantic import SEMANTIC, SEMANTIC_RUNNER, resolve_caption_provider_id, semantic_status_sync
 
-logger = logging.getLogger("quote_collab")
+from astrbot.api import logger
 
 ROLES = ("maintainer",)
 ROLE_LABELS = {"maintainer": "维护员"}

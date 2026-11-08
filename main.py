@@ -85,7 +85,7 @@ v2.9.3:
 
 v2.9.4:
   * 插件更新后通过 DSH 桥接（astrbot_plugin_dsh_bridge）向白名单群聊自动推送更新日志
-  * 白名单默认填充两个开放权限的群（1031430106 / 478864863），可在 plugin_data/update_announce.json 调整
+  * 白名单默认填充两个开放权限的群（v3.0.1 起已移除内置群号，改为用户显式配置）
   * 同一版本只推送一次；新增接口 announce（GET 预览 / POST 保存或测试推送）
 
 v2.9.5:
@@ -155,7 +155,7 @@ from pathlib import Path
 import aiohttp
 import yaml
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.all import *
 from astrbot.api.web import error_response, json_response, request
 from astrbot.api.event import MessageChain, filter
@@ -232,7 +232,7 @@ from quote_sent import SENT, inject_sent_memory, remember_sent_quote
 from quote_views import _overview_sync, _payload_for, thumb_path, warm_thumbs_sync
 from quote_stats import _ranking_text_sync, _statistics_sync
 from quote_recall import _resolve_recall_name, _tool_json, ago_text, recall_cache_get, recall_cache_put, recall_candidates_sync, recall_person_quotes_sync, slim_candidate
-from quote_announce import announce_context_block, announce_notes_summary, bridge_token_default, build_announce_text, load_update_announce, release_notes_sync, save_update_announce
+from quote_announce import announce_context_block, announce_notes_summary, build_announce_text, load_update_announce, release_notes_sync, save_update_announce
 
 # 召回提示节流（v2.12.3）：同群 30 分钟最多注入一次
 _REMIND_TS: dict = {}
@@ -305,6 +305,17 @@ class Quote_Plugin(Star):
     async def initialize(self):
         data_root().mkdir(parents=True, exist_ok=True)
         PLUGIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            await asyncio.to_thread(quote_db.ensure_initialized)
+            media_info = quote_db.media_migration_result()
+            if media_info.startswith("moved") or media_info.startswith("no legacy"):
+                logger.info(f"[quote] 数据目录已就绪：{data_root().resolve()}（{media_info}）")
+            elif media_info.startswith("failed"):
+                logger.warning(
+                    f"[quote] 旧语录图片目录迁移失败（不影响运行，下次启动重试）：{media_info}"
+                )
+        except Exception as exc:
+            logger.warning(f"[quote] 初始化数据库失败：{exc}")
         embedding = resolve_embedding_provider(self.context)
         caption_id = resolve_caption_provider_id(self.context)
         logger.info(
@@ -959,8 +970,6 @@ class Quote_Plugin(Star):
         announce = await asyncio.to_thread(load_update_announce)
         url = str(announce.get("bridge_url") or "").strip()
         token = str(announce.get("bridge_token") or "").strip()
-        if not token:
-            token = await asyncio.to_thread(bridge_token_default)
         if not url:
             return {"ok": False, "error": "未配置 DSH 桥接地址", "results": []}
         headers = {"Content-Type": "application/json", "X-DSH-Token": token}
@@ -3808,7 +3817,7 @@ class Quote_Plugin(Star):
             return {"ok": True, "skipped": "already", "version": PLUGIN_VERSION}
         notes = await asyncio.to_thread(release_notes_sync, PLUGIN_VERSION)
         text = build_announce_text(PLUGIN_VERSION, notes)
-        token = settings["bridge_token"] or await asyncio.to_thread(bridge_token_default)
+        token = str(settings["bridge_token"] or "").strip()
         headers = {"Content-Type": "application/json"}
         if token:
             headers["X-DSH-Token"] = token

@@ -85,7 +85,7 @@ v2.9.3:
 
 v2.9.4:
   * 插件更新后通过 DSH 桥接（astrbot_plugin_dsh_bridge）向白名单群聊自动推送更新日志
-  * 白名单默认填充两个开放权限的群（1031430106 / 478864863），可在 plugin_data/update_announce.json 调整
+  * 白名单默认填充两个开放权限的群（v3.0.1 起已移除内置群号，改为用户显式配置）
   * 同一版本只推送一次；新增接口 announce（GET 预览 / POST 保存或测试推送）
 """
 
@@ -110,7 +110,7 @@ from pathlib import Path
 import aiohttp
 import yaml
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.all import *
 from astrbot.api.web import error_response, json_response, request
 from astrbot.api.event import filter

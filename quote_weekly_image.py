@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from astrbot import logger
+from astrbot.api import logger
 from PIL import Image, ImageDraw, ImageFont
 
 import quote_db

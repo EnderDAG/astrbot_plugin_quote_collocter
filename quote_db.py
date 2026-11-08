@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -38,6 +39,9 @@ _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
 _initialized = False
+
+# v3.0.1 媒体目录迁移结果（只用于日志展示，空串表示尚未执行）
+_media_migration = ""
 
 # 旧版数据文件位置（只用于迁移；迁移后不再读写）
 LEGACY_DATA_ROOT = Path("data") / "quotes_data"
@@ -88,7 +92,97 @@ def _connect() -> sqlite3.Connection:
         if not _initialized:
             _initialized = True
             _migrate_legacy(conn)
+        _migrate_legacy_media_root()
         return conn
+
+
+def ensure_initialized() -> None:
+    """主动初始化数据库（含旧版 JSON / 媒体目录迁移），供插件启动时调用。"""
+    _connect()
+
+
+def media_migration_result() -> str:
+    """返回旧媒体目录迁移结果，供插件启动日志展示。"""
+    return _media_migration
+
+
+def _merge_move_tree(src: Path, dst: Path) -> int:
+    """把 src 目录内容递归并入 dst（目标已存在的文件保留，不覆盖）。返回移动的文件数。"""
+    moved = 0
+    dst.mkdir(parents=True, exist_ok=True)
+    try:
+        children = list(src.iterdir())
+    except OSError:
+        return moved
+    for child in children:
+        target = dst / child.name
+        try:
+            if child.is_dir():
+                if target.is_dir():
+                    moved += _merge_move_tree(child, target)
+                elif not target.exists():
+                    shutil.move(str(child), str(target))
+                    moved += 1
+            elif not target.exists():
+                shutil.move(str(child), str(target))
+                moved += 1
+        except OSError:
+            continue
+    return moved
+
+
+def _prune_empty_dirs(root: Path) -> None:
+    """删除 root 下所有空目录（自底向上），最后尝试删除 root 本身。"""
+    try:
+        entries = sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True)
+    except OSError:
+        return
+    for path in entries:
+        if not path.is_dir():
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            continue
+    try:
+        root.rmdir()
+    except OSError:
+        pass
+
+
+def _migrate_legacy_media_root() -> None:
+    """v3.0.1：把旧版 data/quotes_data/ 下的图片、缩略图并入 plugin_data/quote_collocter/quotes_data/。
+
+    幂等：每次启动检查一次；目标目录已存在的文件不覆盖，迁移完删除空的旧目录。
+    迁移失败不抛异常，不影响插件运行，下次启动会重试。
+    """
+    global _media_migration
+    if _media_migration:
+        return
+    legacy = LEGACY_DATA_ROOT
+    target = LEGACY_PLUGIN_DIR / "quotes_data"
+    if not legacy.is_dir():
+        _media_migration = "no legacy media directory"
+        return
+    moved = 0
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        for child in list(legacy.iterdir()):
+            dest = target / child.name
+            if child.is_dir():
+                if not dest.exists():
+                    # 目标不存在时整目录一步搬走（同盘 rename，最快）
+                    shutil.move(str(child), str(dest))
+                    moved += 1
+                else:
+                    moved += _merge_move_tree(child, dest)
+            elif not dest.exists():
+                shutil.move(str(child), str(dest))
+                moved += 1
+        _prune_empty_dirs(legacy)
+        _media_migration = f"moved {moved} file(s) to {target}"
+    except Exception as exc:  # pragma: no cover - 迁移失败只记状态，下次启动重试
+        _media_migration = f"failed: {exc}"
 
 
 def _create_schema(conn: sqlite3.Connection) -> None:

@@ -85,7 +85,7 @@ v2.9.3:
 
 v2.9.4:
   * 插件更新后通过 DSH 桥接（astrbot_plugin_dsh_bridge）向白名单群聊自动推送更新日志
-  * 白名单默认填充两个开放权限的群（1031430106 / 478864863），可在 plugin_data/update_announce.json 调整
+  * 白名单默认填充两个开放权限的群（v3.0.1 起已移除内置群号，改为用户显式配置）
   * 同一版本只推送一次；新增接口 announce（GET 预览 / POST 保存或测试推送）
 """
 
@@ -110,7 +110,7 @@ from pathlib import Path
 import aiohttp
 import yaml
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.all import *
 from astrbot.api.web import error_response, json_response, request
 from astrbot.api.event import filter
@@ -129,7 +129,7 @@ except Exception:  # pragma: no cover - Pillow 缺失时退化为原图
 from quote_core import *  # noqa: F401,F403
 
 import quote_db
-from quote_core import PLUGIN_DATA_DIR, UPDATE_ANNOUNCE_BRIDGE, UPDATE_ANNOUNCE_CONTEXT_SUMMARY_LIMIT, UPDATE_ANNOUNCE_CONTEXT_TTL, UPDATE_ANNOUNCE_DEFAULT_GROUPS, UPDATE_ANNOUNCE_FILE
+from quote_core import PLUGIN_DATA_DIR, UPDATE_ANNOUNCE_BRIDGE, UPDATE_ANNOUNCE_CONTEXT_SUMMARY_LIMIT, UPDATE_ANNOUNCE_CONTEXT_TTL, UPDATE_ANNOUNCE_FILE
 
 
 def update_announce_path() -> Path:
@@ -156,8 +156,6 @@ def _normalize_update_announce(data) -> dict:
                     "name": str(item.get("name") or "").strip()[:32],
                 }
             )
-    if not groups:
-        groups = [dict(item) for item in UPDATE_ANNOUNCE_DEFAULT_GROUPS]
     try:
         last_ts = float(data.get("last_announced_at") or 0.0)
     except (TypeError, ValueError):
@@ -180,7 +178,7 @@ def _normalize_update_announce(data) -> dict:
                 "summary": "",
             }
     return {
-        "enabled": bool(data.get("enabled", True)),
+        "enabled": bool(data.get("enabled", False)),
         "bridge_url": str(data.get("bridge_url") or UPDATE_ANNOUNCE_BRIDGE),
         "bridge_token": str(data.get("bridge_token") or ""),
         "groups": groups,
@@ -206,25 +204,6 @@ def save_update_announce(data) -> dict:
     except Exception as exc:
         logger.warning(f"[quote] 保存更新推送设置失败：{exc}")
     return settings
-
-def bridge_token_default() -> str:
-    paths = []
-    try:
-        from astrbot.core.utils.astrbot_path import get_astrbot_config_path
-
-        paths.append(Path(get_astrbot_config_path()) / "astrbot_plugin_dsh_bridge_config.json")
-    except Exception:
-        pass
-    paths.append(Path("/root/data/config/astrbot_plugin_dsh_bridge_config.json"))
-    for path in paths:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError):
-            continue
-        token = str((data or {}).get("token") or "").strip()
-        if token:
-            return token
-    return ""
 
 def release_notes_sync(version: str) -> list:
     """读取本插件 CHANGELOG.md 中某个版本的条目，返回可推送的短文本行。"""

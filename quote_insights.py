@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 
-from astrbot import logger
+from astrbot.api import logger
 
 from quote_core import META, group_ids, list_image_files
 from quote_identity import IDENTITY

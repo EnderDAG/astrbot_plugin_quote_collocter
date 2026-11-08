@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Iterable
 
 from quote_core import META, group_ids, list_image_files
 from quote_semantic import SEMANTIC
 
-logger = logging.getLogger("astrbot")
+from astrbot.api import logger
 
 RESTRICTED_VERSION = 2
 

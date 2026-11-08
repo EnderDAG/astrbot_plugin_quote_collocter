@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from astrbot import logger
+from astrbot.api import logger
 
 import quote_db
 from quote_core import group_dir, safe_image_name

@@ -85,7 +85,7 @@ v2.9.3:
 
 v2.9.4:
   * 插件更新后通过 DSH 桥接（astrbot_plugin_dsh_bridge）向白名单群聊自动推送更新日志
-  * 白名单默认填充两个开放权限的群（1031430106 / 478864863），可在 plugin_data/update_announce.json 调整
+  * 白名单默认填充两个开放权限的群（v3.0.1 起已移除内置群号，改为用户显式配置）
   * 同一版本只推送一次；新增接口 announce（GET 预览 / POST 保存或测试推送）
 """
 
@@ -112,7 +112,7 @@ import yaml
 
 import quote_db
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.all import *
 from astrbot.api.web import error_response, json_response, request
 from astrbot.api.event import filter
@@ -133,9 +133,12 @@ from quote_core import *  # noqa: F401,F403
 
 PLUGIN_NAME = "quote_collocter"
 
-PLUGIN_VERSION = "3.0.0"
+PLUGIN_VERSION = "3.0.1"
 
-DATA_ROOT = Path("data") / "quotes_data"
+# v3.0.1 起插件自身数据（含语录图片、缩略图）统一放在 plugin_data/quote_collocter/ 下
+PLUGIN_DATA_DIR = Path("data") / "plugin_data" / PLUGIN_NAME
+
+DATA_ROOT = PLUGIN_DATA_DIR / "quotes_data"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
 
@@ -279,10 +282,8 @@ UPDATE_ANNOUNCE_CONTEXT_TTL = 7200.0
 
 UPDATE_ANNOUNCE_CONTEXT_SUMMARY_LIMIT = 120
 
-UPDATE_ANNOUNCE_DEFAULT_GROUPS = [
-    {"group_id": "1031430106", "umo": "default:GroupMessage:1031430106", "name": "主群"},
-    {"group_id": "478864863", "umo": "default:GroupMessage:478864863", "name": "分会场"},
-]
+# v3.0.1 起不再内置任何群号：更新推送默认关闭，目标群由用户显式配置
+UPDATE_ANNOUNCE_DEFAULT_GROUPS = []
 
 IDENTITY_ALIAS_SOURCE = "manual"
 
@@ -305,8 +306,6 @@ SUBJECT_AUTO_SCORE = 0.85
 SUBJECT_MAX_FILES = 200
 
 SUBJECT_TASKS: dict = {}
-
-PLUGIN_DATA_DIR = Path("data") / "plugin_data" / PLUGIN_NAME
 
 DEFAULT_SETTINGS = {
     "mode": 0,

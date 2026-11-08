@@ -1,3 +1,12 @@
+## v3.0.1（2026-11-08）
+
+AstrBot 插件市场审核（LLM Guard）反馈修复版本，不改变现有功能与数据结构。
+
+- 日志规范：所有模块的 logger 统一改为 `from astrbot.api import logger`；`quote_rating.py`、`quote_collab.py` 不再使用 Python 内置 `logging` 模块。
+- 数据目录规范：语录图片与缩略图从 `data/quotes_data/<群号>/` 迁移到 `data/plugin_data/quote_collocter/quotes_data/<群号>/`；首次启动自动迁移旧目录（幂等合并、同名文件不覆盖），迁移完成后清理空的旧目录。
+- 更新推送默认关闭：移除内置的作者群号，目标群必须由用户显式配置；不再自动读取其他插件（DSH 桥接）配置文件中的 token，桥接 token 仅使用用户填写值。
+- 周报推送同样只使用用户配置的桥接 token。
+
 ## v3.0.0（2026-11-08）
 
 V3 里程碑版本，标志是本插件正式发布到 GitHub 与 AstrBot 插件市场。
@@ -310,7 +319,7 @@ V3 里程碑版本，标志是本插件正式发布到 GitHub 与 AstrBot 插件
 ### 新增：更新后向白名单群聊推送更新日志
 - 插件加载时对比 `PLUGIN_VERSION` 与 `update_announce.json` 里的 `last_version`，发现版本变化即推送一次。
 - 推送走本机 DSH 桥接插件（`astrbot_plugin_dsh_bridge`）的 `POST /push`，无需额外端口或公网。
-- 白名单默认预置两个开放权限的群：`1031430106`、`478864863`（umo 形如 `default:GroupMessage:<群号>`），可在设置文件中增删。
+- 白名单默认预置两个开放权限的群（v3.0.1 起已移除内置群号，改为由用户显式配置；umo 形如 `default:GroupMessage:<群号>`）。
 - 推送内容取自本插件的 CHANGELOG 当前版本小节；同一版本只推送一次，失败会在下次重载时重试。
 - 新增接口 `announce`：GET 读取配置与文案预览，POST 可修改白名单 / 开关，或 `{"test": true}` 立即测试推送。
 

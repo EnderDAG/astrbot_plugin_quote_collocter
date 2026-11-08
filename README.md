@@ -51,7 +51,7 @@ location /quote-collab/ {
 - **群昵称称呼**（v2.8+）：AI 提到语录人物时使用群昵称（群名片优先），不输出 QQ 号或数字 ID。
 - **语录统计**（v2.9+）：管理页「语录统计」与群命令 `/语录排行`，按人物合并统计语录数量、投稿数量、30 天趋势；v2.12.2 起支持按月（`/语录排行 本月` / `上月`）。
 - **稳定 pid**（v2.10+）：人物档案统一用 `pid_0001` 形式的编号管理，改名 / 换号 / 合并后记录仍归在同一个 pid 下。
-- **更新推送**（v2.9.4+）：版本更新后经 DSH 桥接向白名单群聊推送更新日志，并在该群 AI 上下文注入近况提示（v2.9.5+）。
+- **更新推送**（v2.9.4+，v3.0.1 起默认关闭）：需在管理页显式配置目标群与 DSH 桥接 token；版本更新后经桥接推送更新日志，并在该群 AI 上下文注入近况提示（v2.9.5+）。
 - **身份自动同步**（v2.9.3+）：默认每 24 小时同步一次群成员昵称、群名片与头像，周期可调（1–168 小时）或暂停。
 - **全文检索与组合筛选**（v2.13+）：管理页搜索走 SQLite FTS5 索引（中文二元组），可按人物、标签、时间范围叠加筛选。
 - **回收站**（v2.13+）：删除语录先进入回收站，可恢复或彻底删除；保留天数在群设置里调整，过期自动清理。
@@ -129,7 +129,7 @@ location /quote-collab/ {
 - **语义化工具条**：显示向量模型与维度、各状态数量、实时进度，可取消任务、清空本群索引。
 - **语录统计**（v2.9+）：总量、归属率、语义化覆盖率、占用空间、最近 30 天新增、各群概览、人物语录数量排名与投稿人排名。
 - **语录人物**（v2.5+）：人物列表（显示 `pid` 与 QQ 数量）、详情（昵称历史、所在群、头像墙）、以图找人、合并 / 拆分、待确认归属、整理旧别名、自动同步设置。
-- **更新推送设置**：查看白名单群、最近推送结果，保存配置或发送测试推送。
+- **更新推送设置**：配置目标群与 DSH 桥接 token（默认关闭、没有内置群号）、查看最近推送结果、保存配置或发送测试推送。
 - **发送记忆**：查看 / 清空机器人发过的语录记忆。
 
 页面在 sandbox iframe 中运行，所有破坏性操作使用页面内自绘确认框（不受 `window.confirm` 拦截影响）。
@@ -203,25 +203,23 @@ location /quote-collab/ {
 ### 运行数据
 
 ```
-data/quotes_data/
-├── <群号>/
-│   ├── image_<毫秒>.jpg      # 语录原图
-│   ├── quotes_meta.json      # 语录元数据（投稿人 / 时间 / 消息 ID / 归属人物 / 别名）
-│   ├── quotes_semantic.json  # 语义索引（视觉描述 + 归一化向量 + speaker）
-│   ├── admin_settings.yml    # 群设置
-│   └── .thumbs/              # 缩略图缓存（可删除，会自动重建）
-
 data/plugin_data/quote_collocter/
-├── identities.json           # 人物档案：users / persons / aliases / blocked / next_pid
-├── quotes_sent.json          # 发送记忆（按会话保留最近发过的语录）
-├── identity_sync.json        # 身份自动同步设置与上次结果
-├── update_announce.json      # 更新推送：白名单、桥接地址、上次推送与上下文
+├── quote.db                  # 元数据库（SQLite，WAL；见下节）
+├── quotes_data/              # v3.0.1 起：语录图片与缩略图统一放在这里
+│   └── <群号>/
+│       ├── image_<毫秒>.jpg      # 语录原图
+│       ├── quotes_meta.json      # v2.11 前旧格式，已入库，仅作备份
+│       ├── quotes_semantic.json  # v2.11 前旧格式，已入库，仅作备份
+│       ├── admin_settings.yml    # v2.11 前旧格式，已入库，仅作备份
+│       └── .thumbs_v6/           # 缩略图缓存（可删除，会自动重建）
+├── identities.json / quotes_sent.json / identity_sync.json / update_announce.json
+│                             # v2.11 前旧格式，已入库，仅作备份
 └── avatars/                  # 头像存档（sha1 命名，dHash 用于以图找人）
 ```
 
 - 群号与文件名严格校验，无法目录穿越。
-- 删除 `.thumbs/` 不影响原图；删除 `avatars/` 后下次同步会重拉。
-- 从 v1.x / v2.x 升级无需迁移，旧数据可直接读取；v2.10 会在首次加载时补发 pid。
+- 删除 `.thumbs_v6/` 不影响原图；删除 `avatars/` 后下次同步会重拉。
+- 从 v1.x / v2.x 升级无需手动迁移：v2.10 会在首次加载时补发 pid，v2.11 把元数据导入 `quote.db`；v3.0.1 起旧 `data/quotes_data/` 下的图片与缩略图会自动迁移到 `data/plugin_data/quote_collocter/quotes_data/`，迁移完成后清理空的旧目录。
 
 ---
 
@@ -238,7 +236,7 @@ data/plugin_data/quote_collocter/
 | `sent_session` | 机器人发送记忆 |
 | `doc` | 自动同步设置、更新推送设置 |
 
-- **自动迁移**：首次启动时如果存在旧版 `quotes_meta.json`、`admin_settings.yml`、`quotes_semantic.json`、`identities.json`、`quotes_sent.json`、`identity_sync.json`、`update_announce.json`，会自动导入数据库；旧文件保留但不再读写。
+- **自动迁移**：首次启动时如果存在旧版 `quotes_meta.json`、`admin_settings.yml`、`quotes_semantic.json`、`identities.json`、`quotes_sent.json`、`identity_sync.json`、`update_announce.json`，会自动导入数据库；旧文件保留但不再读写。v3.0.1 起旧 `data/quotes_data/` 下的图片与缩略图也会自动迁移到 `plugin_data/quote_collocter/quotes_data/`。
 - **备份**：停插件后打包 `quote.db`（连同 `-wal`/`-shm`）+ `quotes_data/` 图片目录即可；也可用 `GET database` 查看状态。
 - 图片与头像仍然是磁盘文件，数据库只存路径/哈希等元数据。
 
@@ -287,9 +285,9 @@ data/plugin_data/quote_collocter/
 插件版本变化后，启动时会读取 `CHANGELOG.md` 中对应版本的条目，经 DSH 桥接插件推送到白名单群：
 
 1. 等 `UPDATE_ANNOUNCE_DELAY`（默认 6 秒）后尝试推送；QQ 适配器未就绪时按 20/30/45 秒退避重试，最多 4 次。
-2. 每个群向桥接的 `POST /push` 发送 `{session, text}`，鉴权头 `X-DSH-Token`；token 取 `update_announce.json.bridge_token`，为空时回退读取 `astrbot_plugin_dsh_bridge_config.json`。
+2. 每个群向桥接的 `POST /push` 发送 `{session, text}`，鉴权头 `X-DSH-Token`；token 取 `update_announce.json.bridge_token`（v3.0.1 起不再自动读取其他插件配置里的 token）。
 3. 同一版本只推一次（`last_version`），推送成功后写入 `last_result` 与 `last_context`；`last_context` 供 AI 上下文注入使用。
-4. 白名单默认两个群，可在 `update_announce.json` 的 `groups` 中增删；`announce` API 支持预览（GET）与测试推送（POST `{"test": true}`）。
+4. 更新推送默认关闭且没有内置群号：需在 `update_announce.json` 的 `groups` 中显式配置目标群并填写 `bridge_token`；`announce` API 支持预览（GET）与测试推送（POST `{"test": true}`）。
 
 配置示例：
 
@@ -299,8 +297,8 @@ data/plugin_data/quote_collocter/
   "bridge_url": "http://127.0.0.1:4150/push",
   "bridge_token": "",
   "groups": [
-    { "group_id": "1031430106", "umo": "default:GroupMessage:1031430106", "name": "主群" },
-    { "group_id": "478864863", "umo": "default:GroupMessage:478864863", "name": "分会场" }
+    { "group_id": "123456789", "umo": "default:GroupMessage:123456789", "name": "主群" },
+    { "group_id": "987654321", "umo": "default:GroupMessage:987654321", "name": "分会场" }
   ]
 }
 ```
@@ -311,7 +309,7 @@ data/plugin_data/quote_collocter/
 
 - 默认每 24 小时同步一次：`identity/sync`（群成员昵称 + 群名片 + 头衔屏蔽）→ 头像补齐（单次最多 600 张）。
 - 周期可在「语录人物」页调整（1–168 小时）或暂停；`identity/schedule` 返回 `last_sync_at` / `next_sync_at`。
-- 同步只覆盖有语录数据的群（即 `data/quotes_data/<群号>` 存在的群）。
+- 同步只覆盖有语录数据的群（即 `data/plugin_data/quote_collocter/quotes_data/<群号>` 存在的群）。
 - 状态存于 `identity_sync.json`。
 
 ---
