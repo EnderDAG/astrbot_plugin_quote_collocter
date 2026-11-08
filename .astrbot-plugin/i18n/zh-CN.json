@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "display_name": "语录收集器",
+    "short_desc": "群友语录投稿、随机发送与 WebUI 管理"
+  },
+  "pages": {
+    "manage": {
+      "title": "语录管理"
+    }
+  }
+}

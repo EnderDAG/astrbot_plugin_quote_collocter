@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.bak*
+data/
+.venv/
+.env
+.DS_Store
+Thumbs.db
+node_modules/

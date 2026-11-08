@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>语录协作维护</title>
+<style>
+  :root{
+    --paper:#fbf5ed; --panel:#fffdf8; --ink:#111; --muted:#6a6868; --line:#ded8cd;
+    --lime:#d0e516; --danger:#b3261e; --danger-soft:#fbe9e6; --ok:#2f6b3a;
+    --r:14px; --shadow:0 10px 30px rgba(17,17,17,.10);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:"Source Han Sans SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;}
+  button,input,select{font:inherit;color:inherit}
+  .wrap{max-width:1080px;margin:0 auto;padding:14px 14px 96px}
+  .mast{display:flex;align-items:center;gap:10px;padding:10px 2px 14px;border-bottom:2px solid var(--ink)}
+  .logo{width:44px;height:44px;background:var(--lime);display:grid;place-items:center;border-radius:10px;font-weight:900;font-size:22px}
+  .mast h1{font-size:18px;margin:0;letter-spacing:.5px}
+  .mast .sub{font-size:11px;color:var(--muted);letter-spacing:1px}
+  .mast .grow{flex:1}
+  .pill{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:var(--panel)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .login{padding:26px 20px;margin-top:56px}
+  .login h2{margin:0 0 6px;font-size:20px}
+  .login p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.6}
+  .login input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:10px}
+  .btn{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:9px 14px;cursor:pointer;font-size:13px}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.lime{background:var(--lime);border-color:#b9cf12;font-weight:700}
+  .btn.danger{color:var(--danger);border-color:#e3b9b3;background:var(--danger-soft)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .tabs{display:flex;gap:8px;margin:14px 0}
+  .tab{padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:13px;cursor:pointer}
+  .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 14px}
+  .toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .toolbar select{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .hint{font-size:12px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+  .qcard{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer}
+  .qcard.selected{outline:3px solid var(--lime);outline-offset:1px}
+  .qcard .thumb{width:100%;aspect-ratio:4/3;object-fit:cover;background:#efe9dd;display:block}
+  .qcard .meta{padding:8px 9px 10px;font-size:12px;line-height:1.5}
+  .qcard .name{color:var(--muted);font-size:10px;word-break:break-all}
+  .qcard .cap{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+  .qcard .who{margin-top:4px;color:var(--ink);font-weight:600}
+  .flag{position:absolute;top:8px;right:8px;background:var(--danger);color:#fff;font-size:10px;padding:2px 7px;border-radius:999px}
+  .check{position:absolute;top:8px;left:8px;width:20px;height:20px;border-radius:6px;border:2px solid #fff;background:rgba(0,0,0,.25)}
+  .qcard.selected .check{background:var(--lime);border-color:var(--ink)}
+  .pager{display:flex;justify-content:center;gap:10px;align-items:center;margin-top:16px}
+  .actionbar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:2px solid var(--ink);
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:none;gap:8px;flex-wrap:wrap;align-items:center;z-index:20}
+  .actionbar.show{display:flex}
+  .actionbar .count{font-size:12px;color:var(--muted);min-width:64px}
+  .actionbar input{flex:1;min-width:150px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .row{display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px dashed var(--line);font-size:13px}
+  .row:last-child{border-bottom:0}
+  .row .grow{flex:1;min-width:0}
+  .row .name{font-size:11px;color:var(--muted);word-break:break-all}
+  .empty{padding:30px 10px;text-align:center;color:var(--muted);font-size:13px}
+  .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:#1b1c15;color:#fff;padding:10px 16px;
+    border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:86vw}
+  .toast.show{opacity:1}
+  .hidden{display:none!important}
+  .badge-role{background:var(--lime);border:1px solid #b9cf12;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700}
+  #group-select{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12px;max-width:180px}
+  .qcard .thumb{cursor:zoom-in}
+  .lightbox{position:fixed;inset:0;background:rgba(12,13,9,.72);display:flex;align-items:center;justify-content:center;padding:14px;z-index:60}
+  .lb-panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.35);width:min(96vw,880px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+  .lb-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px}
+  .lb-head .grow{flex:1}
+  .lb-title{font-size:11px;color:var(--muted);word-break:break-all}
+  .lb-stage{background:#15160f;display:flex;align-items:center;justify-content:center;min-height:180px;flex:1;overflow:auto}
+  .lb-stage img{max-width:100%;max-height:64vh;object-fit:contain;display:block}
+  .lb-body{padding:12px 14px 14px}
+  .lb-cap{font-size:14px;line-height:1.65;white-space:pre-wrap}
+  .lb-who{margin-top:8px;font-size:12px;color:var(--ink);font-weight:700}
+  .lb-tags{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+  .lb-tags span{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);background:#fff}
+  .lb-foot{margin-top:8px}
+  .lb-edit{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+  .lb-edit-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .lb-edit-label{font-size:11px;color:var(--muted);min-width:52px}
+  .lb-edit input{flex:1;min-width:130px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px}
+  .lb-edit select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;max-width:170px}
+  .lb-edit .btn{padding:7px 11px;font-size:12px}
+  .lb-edit .btn.on{background:var(--lime);border-color:#b9cf12;font-weight:700}
+  .lb-tags-edit{display:flex;flex-direction:column;gap:8px;flex:1;min-width:220px}
+  .lb-tag-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center}
+  .lb-tag-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 5px 3px 10px;font-size:12px;line-height:1.6}
+  .lb-tag-chip .x{border:0;background:transparent;cursor:pointer;font-size:15px;line-height:1;color:var(--muted);padding:0 3px}
+  .lb-tag-chip .x:hover{color:var(--danger)}
+  .lb-tag-add{display:flex;gap:6px;align-items:center}
+  .lb-tag-add input{flex:1;min-width:150px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mast">
+    <div class="logo">语</div>
+    <div>
+      <h1>语录协作维护</h1>
+      <div class="sub">QUOTE ARCHIVE · COLLAB</div>
+    </div>
+    <div class="grow"></div>
+    <span class="pill hidden" id="who"></span>
+    <select id="group-select" class="hidden" title="切换要维护的群"></select>
+    <button class="btn hidden" id="btn-logout">退出</button>
+  </div>
+
+  <div class="card login" id="login-box">
+    <h2>邀请登录</h2>
+    <p>请粘贴管理员发给你的邀请链接（或邀请码）。链接有效期由管理员设置（可为 7 天 / 30 天 / 90 天 / 长期），登录后 24 小时内免重复验证。</p>
+    <input id="token-input" placeholder="邀请码（链接 ?t= 后的部分）" autocomplete="off" />
+    <button class="btn primary" id="btn-login">登录</button>
+    <p class="hint" style="margin-top:14px">没有邀请码？请先在群里联系管理员发送「/维护 邀请 @你」。</p>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button class="tab on" data-tab="quotes">语录维护</button>
+      <button class="tab" data-tab="semantic" id="tab-semantic">语义管理</button>
+      <button class="tab" data-tab="audit">审计日志</button>
+    </div>
+
+    <section id="tab-quotes">
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="搜索文件名 / 描述 / 标签 / 投稿人" />
+        <select id="restricted"><option value="all">全部</option><option value="0">非限制级</option><option value="1">限制级</option></select>
+        <select id="assigned"><option value="all">归属：全部</option><option value="1">已归属</option><option value="0">未归属</option></select>
+        <select id="sort"><option value="new">最新优先</option><option value="old">最早优先</option></select>
+        <button class="btn" id="btn-refresh">刷新</button>
+      </div>
+      <div class="toolbar">
+        <span class="hint" id="quotes-info"></span>
+        <span class="grow"></span>
+        <button class="btn" id="btn-select-all">全选本页</button>
+        <button class="btn" id="btn-clear-sel">清空选择</button>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="pager">
+        <button class="btn" id="btn-prev">上一页</button>
+        <span class="hint" id="page-info"></span>
+        <button class="btn" id="btn-next">下一页</button>
+      </div>
+    </section>
+
+    <section id="tab-semantic" class="hidden">
+      <div class="toolbar">
+        <select id="sem-status"><option value="">全部状态</option><option value="pending">待处理</option><option value="failed">失败</option></select>
+        <button class="btn" id="btn-sem-refresh">刷新</button>
+        <span class="hint" id="sem-info"></span>
+      </div>
+      <div class="card" id="sem-list"></div>
+      <p class="hint" style="margin-top:10px">仅「管理」角色可重试语义化；一次最多 20 张。</p>
+    </section>
+
+    <section id="tab-audit" class="hidden">
+      <div class="toolbar"><button class="btn" id="btn-audit-refresh">刷新</button><span class="hint">最近 80 条</span></div>
+      <div class="card" id="audit-list"></div>
+    </section>
+  </div>
+</div>
+
+<div class="actionbar" id="actionbar">
+  <span class="count" id="sel-count">已选 0 张</span>
+  <button class="btn danger" id="btn-mark">标为限制级</button>
+  <button class="btn" id="btn-unmark">取消限制级</button>
+  <input id="person-q" placeholder="搜索人物（昵称/pid）" />
+  <button class="btn" id="btn-person-search">找人</button>
+  <select id="person-list"></select>
+  <button class="btn primary" id="btn-assign">归属此人物</button>
+  <button class="btn" id="btn-unassign">清除归属</button>
+</div>
+<div class="lightbox hidden" id="lightbox">
+  <div class="lb-panel" role="dialog" aria-modal="true">
+    <div class="lb-head">
+      <span class="lb-title" id="lb-name"></span>
+      <span class="grow"></span>
+      <button class="btn" id="lb-prev">上一张</button>
+      <button class="btn" id="lb-next">下一张</button>
+      <button class="btn" id="lb-close">关闭</button>
+    </div>
+    <div class="lb-stage"><img id="lb-img" alt="" /></div>
+    <div class="lb-body">
+      <div class="lb-cap" id="lb-cap"></div>
+      <div class="lb-who" id="lb-who"></div>
+      <div class="lb-tags" id="lb-tags"></div>
+      <div class="lb-edit" id="lb-edit">
+        <div class="lb-edit-row">
+          <span class="lb-edit-label">限制级</span>
+          <button class="btn danger" id="lb-mark">标为限制级</button>
+          <button class="btn" id="lb-unmark">取消限制级</button>
+          <span class="hint" id="lb-edit-hint"></span>
+        </div>
+        <div class="lb-edit-row">
+          <span class="lb-edit-label">人物归属</span>
+          <input id="lb-person-q" placeholder="搜索人物昵称 / pid" />
+          <button class="btn" id="lb-person-search">找人</button>
+          <select id="lb-person-list"></select>
+          <button class="btn primary" id="lb-assign">归属此人</button>
+          <button class="btn" id="lb-unassign">清除归属</button>
+        </div>
+        <div class="lb-edit-row">
+          <span class="lb-edit-label">标签</span>
+          <div class="lb-tags-edit">
+            <div class="lb-tag-chips" id="lb-tag-chips"></div>
+            <div class="lb-tag-add">
+              <input id="lb-tag-new" placeholder="输入标签，回车或点「添加」" maxlength="24" />
+              <button class="btn" id="lb-tag-add" type="button">＋ 添加</button>
+            </div>
+          </div>
+        </div>
+        <div class="lb-edit-row">
+          <span class="lb-edit-label"></span>
+          <button class="btn primary" id="lb-tag-save" type="button">保存标签</button>
+          <button class="btn" id="lb-tag-clear" type="button">恢复语义标签</button>
+          <span class="hint" id="lb-tag-hint"></span>
+          <span class="hint" id="lb-tag-source"></span>
+        </div>
+        <div class="lb-edit-row hidden" id="lb-curator-row">
+          <span class="lb-edit-label">语义</span>
+          <input id="lb-sem-hint" type="text" maxlength="300" placeholder="参考意见（可选）：如「跪着的是 A，站起来的是 B」" />
+          <button class="btn" id="lb-sem-retry">重新语义化</button>
+          <span class="hint" id="lb-sem-state"></span>
+        </div>
+      </div>
+      <div class="lb-foot hint" id="lb-foot"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = { token: "", me: null, tab: "quotes", page: 1, pages: 1, items: [], selected: new Set(), person: "", people: [], group: "", lightbox: -1, lbPeople: [], lbPeopleLoaded: false, lbTags: [], lbTagsDirty: false };
+
+  function toast(msg) {
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+  async function api(path, opts) {
+    const init = Object.assign({ credentials: "same-origin", headers: {} }, opts || {});
+    if (init.method && init.method !== "GET") init.headers["X-Collab"] = "1";
+    if (init.body) init.headers["Content-Type"] = "application/json";
+    const res = await fetch("api/" + path, init);
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) throw new Error((data && (data.error || data.message)) || ("HTTP " + res.status));
+    return data;
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---- 登录 ----
+  function readHashToken() {
+    const h = location.hash || "";
+    const m = h.match(/t=([A-Za-z0-9_\-]+)/);
+    return m ? m[1] : "";
+  }
+  function applyGroups(me) {
+    const groups = (me && me.groups && me.groups.length) ? me.groups : [me.group_id];
+    const roles = (me && me.roles) || {};
+    state.group = groups.indexOf(me.group_id) >= 0 ? me.group_id : groups[0];
+    me.group_id = state.group;
+    const sel = $("group-select");
+    if (groups.length > 1) {
+      sel.classList.remove("hidden");
+      sel.innerHTML = groups.map((g) => {
+        const r = roles[g] === "curator" ? "管理" : (roles[g] === "editor" ? "编辑" : "");
+        return `<option value="${esc(g)}">群 ${esc(g)}${r ? " · " + r : ""}</option>`;
+      }).join("");
+      sel.value = state.group;
+    } else {
+      sel.classList.add("hidden");
+    }
+  }
+  async function login(token) {
+    const data = await api("login", { method: "POST", body: JSON.stringify({ token }) });
+    state.me = data;
+    applyGroups(state.me);
+    history.replaceState(null, "", location.pathname);
+    $("login-box").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("who").classList.remove("hidden");
+    $("btn-logout").classList.remove("hidden");
+    $("who").innerHTML = esc(data.name || data.qq) + ' <span class="badge-role">' + esc(data.role_label) + "</span>";
+    // v2.20.3 权限合并：所有维护员都可使用语义管理
+    await loadQuotes(1);
+  }
+  async function boot() {
+    const t = readHashToken();
+    const lbParam = (location.hash || "").match(/lb=(\d+)/);
+    if (t) { $("token-input").value = t; }
+    try {
+      const me = await api("me");
+      state.me = me;
+      applyGroups(state.me);
+      $("login-box").classList.add("hidden");
+      $("app").classList.remove("hidden");
+      $("who").classList.remove("hidden");
+      $("btn-logout").classList.remove("hidden");
+      $("who").innerHTML = esc(me.name || me.qq) + ' <span class="badge-role">' + esc(me.role_label) + "</span>";
+      // v2.20.3 权限合并：所有维护员都可使用语义管理
+      await loadQuotes(1);
+    } catch (e) {
+      /* 未登录：若 URL 里带了邀请 token，自动登录一次 */
+      if (t) {
+        try { await login(t); } catch (e2) { toast("登录失败：" + e2.message); }
+      }
+    }
+    if (lbParam && state.items.length) {
+      setTimeout(() => {
+        const it = state.items[Number(lbParam[1]) || 0];
+        if (it) openLightbox(it.name);
+      }, 600);
+    }
+  }
+
+  // ---- 语录 ----
+  function selectedNames() { return Array.from(state.selected); }
+  function updateBar() {
+    const n = state.selected.size;
+    $("sel-count").textContent = "已选 " + n + " 张";
+    $("actionbar").classList.toggle("show", n > 0);
+  }
+  function renderQuotes() {
+    const grid = $("grid");
+    grid.innerHTML = state.items.map((it) => `
+      <div class="qcard ${state.selected.has(it.name) ? "selected" : ""}" data-name="${esc(it.name)}">
+        <span class="check"></span>
+        ${it.restricted ? '<span class="flag">限制级</span>' : ""}
+        <img class="thumb" loading="lazy" src="api/thumb?group_id=${encodeURIComponent(it.group_id)}&name=${encodeURIComponent(it.name)}" alt="" />
+        <div class="meta">
+          <div class="cap">${esc(it.caption || "（未语义化）")}</div>
+          <div class="who">${esc(it.person_name || it.speaker || "未归属")}</div>
+          <div class="name">${esc(it.name)}</div>
+        </div>
+      </div>`).join("") || '<div class="empty">没有匹配的语录</div>';
+    $("quotes-info").textContent = `共 ${state.total} 张 · 第 ${state.page}/${state.pages} 页`;
+    $("page-info").textContent = `${state.page} / ${state.pages}`;
+    $("btn-prev").disabled = state.page <= 1;
+    $("btn-next").disabled = state.page >= state.pages;
+    updateBar();
+  }
+  async function loadQuotes(page) {
+    const params = new URLSearchParams({
+      group_id: state.me.group_id,
+      page: String(page || 1),
+      page_size: "18",
+      keyword: $("q").value.trim(),
+      restricted: $("restricted").value,
+      assigned: $("assigned").value,
+      sort: $("sort").value,
+    });
+    const data = await api("quotes?" + params.toString());
+    state.items = data.items || [];
+    state.total = data.total;
+    state.page = data.page;
+    state.pages = data.pages;
+    state.selected.clear();
+    renderQuotes();
+  }
+  function toggleSelect(name) {
+    if (state.selected.has(name)) state.selected.delete(name); else state.selected.add(name);
+    renderQuotes();
+  }
+
+  // ---- 人物 ----
+  async function searchPeople() {
+    const kw = $("person-q").value.trim();
+    const data = await api("people?group_id=" + encodeURIComponent(state.me.group_id) + "&keyword=" + encodeURIComponent(kw));
+    state.people = data.items || [];
+    $("person-list").innerHTML = state.people.map((p) => `<option value="${esc(p.pid)}">${esc(p.name)}（${p.count} 张）</option>`).join("") || '<option value="">无匹配人物</option>';
+  }
+
+  // ---- 大图查看 ----
+  function currentIndex(name) {
+    return state.items.findIndex((it) => it.name === name);
+  }
+  function openLightbox(name) {
+    const idx = currentIndex(name);
+    if (idx < 0) return;
+    state.lightbox = idx;
+    renderLightbox();
+    $("lightbox").classList.remove("hidden");
+  }
+  function closeLightbox() {
+    $("lightbox").classList.add("hidden");
+    state.lightbox = -1;
+  }
+  function stepLightbox(delta) {
+    if (typeof state.lightbox !== "number" || state.lightbox < 0) return;
+    const n = state.items.length;
+    if (!n) return;
+    state.lightbox = (state.lightbox + delta + n) % n;
+    renderLightbox();
+  }
+  function renderLightbox() {
+    const it = state.items[state.lightbox];
+    if (!it) return;
+    $("lb-img").src = "api/thumb?group_id=" + encodeURIComponent(it.group_id) + "&name=" + encodeURIComponent(it.name) + "&full=1";
+    $("lb-name").textContent = it.name;
+    $("lb-cap").textContent = it.caption || "（未语义化）";
+    const who = it.person_name || it.speaker || "未归属";
+    $("lb-who").textContent = "人物：" + who + (it.person_pid ? " · " + it.person_pid : "") + (it.restricted ? " · 限制级" : "");
+    $("lb-tags").innerHTML = (it.tags || []).map((t) => `<span>${esc(t)}</span>`).join("");
+    state.lbTags = (it.tags || []).slice(0, 10);
+    state.lbTagsDirty = false;
+    renderTagChips();
+    $("lb-tag-source").textContent = it.tags_source === "manual" ? "来源：手动" : (it.tags_source === "semantic" ? "来源：语义" : "来源：无");
+    const d = new Date(((it.ts || 0) * 1000));
+    const stamp = it.ts ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "时间未知";
+    $("lb-foot").textContent = `语义状态：${it.semantic || "未知"} · 投稿人：${it.nickname || "未知"} · ${stamp} · 第 ${state.lightbox + 1}/${state.items.length} 张`;
+    // 编辑区状态
+    $("lb-mark").disabled = !!it.restricted;
+    $("lb-unmark").disabled = !it.restricted;
+    $("lb-mark").classList.toggle("on", !!it.restricted);
+    $("lb-edit-hint").textContent = it.restricted ? "当前：限制级" : "当前：非限制级";
+    $("lb-curator-row").classList.toggle("hidden", !isCurator());
+    $("lb-sem-state").textContent = it.semantic ? "状态：" + it.semantic : "";
+    if (state.lbLast !== it.name) {
+      state.lbLast = it.name;
+      const hintEl = $("lb-sem-hint");
+      if (hintEl) hintEl.value = "";
+    }
+    if (!state.lbPeopleLoaded) {
+      state.lbPeopleLoaded = true;
+      lbSearchPeople().catch(() => {});
+    }
+  }
+
+  // ---- 查看面板里的编辑 ----
+  function currentRole() {
+    const roles = (state.me && state.me.roles) || {};
+    return roles[state.me.group_id] || (state.me && state.me.role) || "";
+  }
+  function isCurator() { return !!state.me; } // v2.20.3 起编辑/管理合并为维护员，权限相同
+  function lightboxItem() { return state.items[state.lightbox] || null; }
+  async function reloadKeepingLightbox(name) {
+    await loadQuotes(state.page);
+    const idx = state.items.findIndex((it) => it.name === name);
+    if (idx >= 0) { state.lightbox = idx; renderLightbox(); }
+    else closeLightbox();
+  }
+  async function lbMarkRestricted(value) {
+    const it = lightboxItem();
+    if (!it) return;
+    try {
+      const r = await api("restricted", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names: [it.name], restricted: value }) });
+      toast(`已更新 ${r.updated} 张`);
+      await reloadKeepingLightbox(it.name);
+    } catch (e) { toast("失败：" + e.message); }
+  }
+  async function lbSearchPeople() {
+    const kw = $("lb-person-q").value.trim();
+    try {
+      const data = await api("people?group_id=" + encodeURIComponent(state.me.group_id) + "&keyword=" + encodeURIComponent(kw));
+      state.lbPeople = data.items || [];
+      $("lb-person-list").innerHTML = state.lbPeople.map((p) => `<option value="${esc(p.pid)}">${esc(p.name)}（${p.count} 张）</option>`).join("") || '<option value="">无匹配人物</option>';
+    } catch (e) { toast(e.message); }
+  }
+  async function lbAssign(pid) {
+    const it = lightboxItem();
+    if (!it) return;
+    if (pid === null) return toast("请先选择人物");
+    try {
+      const r = await api("assign", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names: [it.name], person_id: pid }) });
+      toast(pid ? `已归属 ${r.updated} 张` : `已清除归属 ${r.updated} 张`);
+      await reloadKeepingLightbox(it.name);
+    } catch (e) { toast("失败：" + e.message); }
+  }
+  function renderTagChips() {
+    const tags = state.lbTags || [];
+    $("lb-tag-chips").innerHTML = tags.length
+      ? tags.map((t) => `<span class="lb-tag-chip">${esc(t)}<button class="x" type="button" data-tag="${esc(t)}" title="移除">×</button></span>`).join("")
+      : '<span class="hint">还没有标签，输入后点「添加」</span>';
+    $("lb-tag-hint").textContent = `${tags.length}/10 · ${state.lbTagsDirty ? "有未保存的修改" : "已保存"}`;
+    $("lb-tag-save").disabled = !state.lbTagsDirty;
+  }
+  function lbAddTag() {
+    const raw = ($("lb-tag-new").value || "").trim();
+    if (!raw) return;
+    const tag = raw.replace(/^#/, "").slice(0, 24);
+    if (!tag) return;
+    if ((state.lbTags || []).includes(tag)) { toast("标签已存在"); $("lb-tag-new").value = ""; return; }
+    if ((state.lbTags || []).length >= 10) { toast("最多 10 个标签"); return; }
+    state.lbTags.push(tag);
+    state.lbTagsDirty = true;
+    $("lb-tag-new").value = "";
+    renderTagChips();
+  }
+  function lbRemoveTag(tag) {
+    state.lbTags = (state.lbTags || []).filter((t) => t !== tag);
+    state.lbTagsDirty = true;
+    renderTagChips();
+  }
+  async function lbSaveTags(clear) {
+    const it = lightboxItem();
+    if (!it) return;
+    try {
+      const tags = clear ? null : (state.lbTags || []).slice(0, 10);
+      const r = await api("tags", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names: [it.name], tags }) });
+      toast(clear ? `已恢复语义标签 ${r.updated} 张` : `已保存标签 ${r.updated} 张`);
+      await reloadKeepingLightbox(it.name);
+    } catch (e) { toast("失败：" + e.message); }
+  }
+  async function lbRetrySemantic() {
+    const it = lightboxItem();
+    if (!it) return;
+    const hintEl = $("lb-sem-hint");
+    const hint = hintEl ? hintEl.value.trim() : "";
+    try {
+      const r = await api("semantic/retry", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names: [it.name], hint }) });
+      toast(`已加入队列（${r.queued} 张）` + (hint ? "，已附带参考意见" : ""));
+      if (hintEl) hintEl.value = "";
+      $("lb-sem-state").textContent = "状态：pending（已提交参考意见）";
+    } catch (e) { toast("失败：" + e.message); }
+  }
+
+  // ---- 写操作 ----
+  async function markRestricted(restricted) {
+    const names = selectedNames();
+    if (!names.length) return;
+    try {
+      const r = await api("restricted", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names, restricted }) });
+      toast(`已更新 ${r.updated} 张`);
+      await loadQuotes(state.page);
+    } catch (e) { toast("失败：" + e.message); }
+  }
+  async function assign(personId) {
+    const names = selectedNames();
+    if (!names.length) return;
+    try {
+      const r = await api("assign", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names, person_id: personId }) });
+      toast(`已归属 ${r.updated} 张`);
+      await loadQuotes(state.page);
+    } catch (e) { toast("失败：" + e.message); }
+  }
+
+  // ---- 语义 ----
+  async function loadSemantic() {
+    const params = new URLSearchParams({ group_id: state.me.group_id });
+    if ($("sem-status").value) params.set("status", $("sem-status").value);
+    const data = await api("semantic?" + params.toString());
+    $("sem-info").textContent = `共 ${data.total} 张`;
+    $("sem-list").innerHTML = (data.items || []).map((it) => `
+      <div class="row">
+        <div class="grow"><div>${esc(it.caption || "（无描述）")}</div><div class="name">${esc(it.name)} · ${esc(it.status)}</div></div>
+        <button class="btn" data-retry="${esc(it.name)}">重试</button>
+      </div>`).join("") || '<div class="empty">没有待处理项</div>';
+  }
+  async function retrySemantic(name) {
+    try {
+      const r = await api("semantic/retry", { method: "POST", body: JSON.stringify({ group_id: state.me.group_id, names: [name] }) });
+      toast(`已加入队列（${r.queued} 张）`);
+      await loadSemantic();
+    } catch (e) { toast("失败：" + e.message); }
+  }
+
+  // ---- 审计 ----
+  async function loadAudit() {
+    const data = await api("audit?group_id=" + encodeURIComponent(state.me.group_id) + "&limit=80");
+    const actionText = { assign: "归属", restricted: "限制级", semantic_retry: "语义重试", login: "登录" };
+    $("audit-list").innerHTML = (data.items || []).map((it) => {
+      const d = new Date((it.ts || 0) * 1000);
+      const t = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      const undoable = (it.action === "assign" || it.action === "restricted") && !it.undone;
+      const flag = it.undone ? "（已撤销）" : "";
+      return `<div class="row"><div class="grow"><div>${esc(it.actor_name || it.actor_qq)} · ${esc(actionText[it.action] || it.action)}${flag}</div><div class="name">${esc(t)} · ${esc(it.target || "")}</div></div>${undoable ? `<button class="btn" data-undo="${esc(it.id)}">撤销</button>` : ""}</div>`;
+    }).join("") || '<div class="empty">暂无审计记录</div>';
+  }
+
+  // ---- 事件 ----
+  $("btn-login").onclick = async () => {
+    try { await login($("token-input").value.trim()); } catch (e) { toast("登录失败：" + e.message); }
+  };
+  $("btn-logout").onclick = async () => {
+    try { await api("logout", { method: "POST", body: "{}" }); } catch (e) {}
+    location.reload();
+  };
+  $("btn-refresh").onclick = () => loadQuotes(state.page);
+  $("q").addEventListener("change", () => loadQuotes(1));
+  $("restricted").addEventListener("change", () => loadQuotes(1));
+  $("assigned").addEventListener("change", () => loadQuotes(1));
+  $("sort").addEventListener("change", () => loadQuotes(1));
+  $("lb-close").onclick = closeLightbox;
+  $("lb-prev").onclick = () => stepLightbox(-1);
+  $("lb-next").onclick = () => stepLightbox(1);
+  $("lightbox").addEventListener("click", (ev) => {
+    if (ev.target === $("lightbox")) closeLightbox();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if ($("lightbox").classList.contains("hidden")) return;
+    if (["INPUT", "SELECT", "TEXTAREA"].indexOf((ev.target && ev.target.tagName) || "") >= 0) return;
+    if (ev.key === "Escape") closeLightbox();
+    if (ev.key === "ArrowLeft") stepLightbox(-1);
+    if (ev.key === "ArrowRight") stepLightbox(1);
+  });
+  $("lb-mark").onclick = () => lbMarkRestricted(true);
+  $("lb-unmark").onclick = () => lbMarkRestricted(false);
+  $("lb-person-search").onclick = () => lbSearchPeople();
+  $("lb-person-q").addEventListener("keydown", (ev) => { if (ev.key === "Enter") lbSearchPeople(); });
+  $("lb-assign").onclick = () => lbAssign($("lb-person-list").value);
+  $("lb-unassign").onclick = () => lbAssign("");
+  $("lb-tag-add").onclick = () => lbAddTag();
+  $("lb-tag-new").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); lbAddTag(); } });
+  $("lb-tag-chips").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-tag]");
+    if (btn) lbRemoveTag(btn.getAttribute("data-tag"));
+  });
+  $("lb-tag-save").onclick = () => lbSaveTags(false);
+  $("lb-tag-clear").onclick = () => lbSaveTags(true);
+  $("lb-sem-retry").onclick = () => lbRetrySemantic();
+  $("btn-prev").onclick = () => loadQuotes(Math.max(1, state.page - 1));
+  $("btn-next").onclick = () => loadQuotes(Math.min(state.pages, state.page + 1));
+  $("btn-select-all").onclick = () => { state.items.forEach((it) => state.selected.add(it.name)); renderQuotes(); };
+  $("btn-clear-sel").onclick = () => { state.selected.clear(); renderQuotes(); };
+  $("grid").addEventListener("click", (ev) => {
+    const card = ev.target.closest(".qcard");
+    if (!card) return;
+    const name = card.getAttribute("data-name");
+    if (ev.target.closest(".thumb")) {
+      openLightbox(name);
+      return;
+    }
+    toggleSelect(name);
+  });
+  $("btn-mark").onclick = () => markRestricted(true);
+  $("btn-unmark").onclick = () => markRestricted(false);
+  $("btn-person-search").onclick = () => searchPeople().catch((e) => toast(e.message));
+  $("person-q").addEventListener("keydown", (ev) => { if (ev.key === "Enter") searchPeople().catch((e) => toast(e.message)); });
+  $("btn-assign").onclick = () => { const pid = $("person-list").value; if (!pid) return toast("先选择人物"); assign(pid); };
+  $("btn-unassign").onclick = () => assign("");
+  $("btn-sem-refresh").onclick = () => loadSemantic().catch((e) => toast(e.message));
+  $("sem-status").addEventListener("change", () => loadSemantic().catch((e) => toast(e.message)));
+  $("sem-list").addEventListener("click", (ev) => { const b = ev.target.closest("[data-retry]"); if (b) retrySemantic(b.getAttribute("data-retry")); });
+  $("btn-audit-refresh").onclick = () => loadAudit().catch((e) => toast(e.message));
+  $("audit-list").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-undo]");
+    if (!btn) return;
+    const id = Number(btn.getAttribute("data-undo"));
+    if (!id) return;
+    if (!confirm("确认撤销这条操作？会尽量恢复到操作前状态。")) return;
+    try {
+      const r = await api("undo", { method: "POST", body: JSON.stringify({ id }) });
+      toast(`已撤销，写回 ${r.changed} 条`);
+      await loadAudit();
+      await loadQuotes(state.page);
+    } catch (e) { toast("撤销失败：" + e.message); }
+  });
+  $("group-select").addEventListener("change", () => {
+    state.me.group_id = $("group-select").value;
+    state.group = state.me.group_id;
+    state.selected.clear();
+    state.lbPeopleLoaded = false;
+    state.lbPeople = [];
+    loadQuotes(1).catch((e) => toast(e.message));
+    const active = document.querySelector(".tab.on");
+    const which = active ? active.getAttribute("data-tab") : "quotes";
+    if (which === "audit") loadAudit().catch((e) => toast(e.message));
+    if (which === "semantic") loadSemantic().catch((e) => toast(e.message));
+  });
+  $("tab-semantic").onclick = () => { $("tab-semantic").classList.add("on"); loadSemantic().catch((e) => toast(e.message)); };
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.onclick = () => {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t === tab));
+      document.querySelectorAll("section[id^=tab-]").forEach((s) => s.classList.add("hidden"));
+      const target = "tab-" + tab.getAttribute("data-tab");
+      $(target).classList.remove("hidden");
+      if (tab.getAttribute("data-tab") === "audit") loadAudit().catch((e) => toast(e.message));
+    };
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
