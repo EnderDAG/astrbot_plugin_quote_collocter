@@ -53,6 +53,8 @@ desc: |
 
   完整版本历史见 [CHANGELOG.md](https://github.com/EnderDAG/astrbot_plugin_quote_collocter/blob/main/CHANGELOG.md)。
 
+  **v3.0.3**：协作维护页不再出现在仪表盘的插件页面列表中（避免误入维护登录入口），仅通过邀请链接（/quote-collab/）访问；其余行为与 v3.0.2 一致。
+
   **v3.0.2**：重写插件市场介绍与群内帮助，改为结构化说明；代码行为与 v3.0.1 一致。
 
   **v3.0.1**：修复市场审核反馈——日志统一从 `astrbot.api` 导入；语录图片与缩略图迁移到 `plugin_data/quote_collocter/quotes_data` 并自动迁移旧目录；更新推送默认关闭，移除内置群号与跨插件 token 读取。
@@ -72,7 +74,7 @@ help: |
   开启群设置里的「让 AI 记住发过的语录」「允许 AI 语义召回并发送」后，机器人可以按语义检索并发送语录。
 
   数据保存在 data/plugin_data/quote_collocter/（quote.db 与 quotes_data/ 图片），备份整个目录即可。
-version: v3.0.2
+version: v3.0.3
 author: enderdag
 repo: https://github.com/EnderDAG/astrbot_plugin_quote_collocter
 astrbot_version: ">=4.17,<5"

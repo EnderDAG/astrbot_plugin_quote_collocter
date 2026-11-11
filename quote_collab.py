@@ -60,7 +60,7 @@ SEMANTIC_BATCH_MAX = 20
 WRITE_LIMIT_PER_MIN = 40
 READ_LIMIT_PER_MIN = 240
 
-_HTML_PATH = Path(__file__).resolve().parent / "pages" / "collab" / "index.html"
+_HTML_PATH = Path(__file__).resolve().parent / "collab" / "index.html"
 
 _ctx: Any = None
 _runner: web.AppRunner | None = None
