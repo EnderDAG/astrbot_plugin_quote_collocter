@@ -268,6 +268,22 @@ def _filter_rating_names(group_id: str, names: list) -> list:
     return [name for name in names if name in allowed]
 
 
+def _alias_learn_text(message_obj) -> str:
+    """v3.0.5：俗名学习只取正文 Plain 文本，忽略 @ 提及与引用内容。"""
+    parts = []
+    try:
+        for comp in list(getattr(message_obj, "message", []) or []):
+            if isinstance(comp, At):
+                continue
+            if isinstance(comp, Plain):
+                text = str(getattr(comp, "text", "") or "")
+                if text:
+                    parts.append(text)
+    except Exception:
+        return ""
+    return " ".join(" ".join(parts).split()).strip()
+
+
 def _chat_pool(group_id: str) -> list:
     """群命令取图池：默认只含非限制级，本群开启后为全部。"""
     if _allow_restricted(group_id):
@@ -4667,7 +4683,8 @@ class Quote_Plugin(Star):
             IDENTITY.touch(user_id, names, group_id, card=group_card)
             self.schedule_avatar_sync(user_id)
             try:
-                quote_alias_learn.record_message(group_id, user_id, names[0] if names else identity_nick, msg)
+                alias_text = _alias_learn_text(message_obj) or msg
+                quote_alias_learn.record_message(group_id, user_id, names[0] if names else identity_nick, alias_text)
             except Exception:
                 pass
         except Exception as exc:

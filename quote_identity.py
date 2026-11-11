@@ -1854,6 +1854,7 @@ class IdentityStore:
         group_id: str = "",
         evidence: str = "",
         confidence: float = 0.5,
+        occurrences: int = 0,
         evidence_user: str = "",
     ) -> int:
         """把一条「俗名 → QQ」写入待确认队列；已确认指向同一人则跳过。"""
@@ -1894,6 +1895,7 @@ class IdentityStore:
                 evidence,
                 evidence_user,
                 confidence,
+                max(0, int(occurrences or 0)),
             )
         except Exception as exc:
             logger.warning(f"[quote] 写入俗名候选失败：{exc}")

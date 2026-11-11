@@ -35,6 +35,9 @@ ALIAS_MIN_LEN = 2
 
 ALIAS_MAX_LEN = 16
 
+# v3.0.5：俗名必须在最近消息里至少字面出现过这么多次才写入候选（1 = 过滤模型臆造，可调大更严格）
+MIN_OCCURRENCES = 1
+
 SKIP_PREFIXES = (
     "/",
     "！",
@@ -59,10 +62,12 @@ SYSTEM_PROMPT = (
     "用来建立“外号 → 真人”的对照表。\n"
     "规则：\n"
     "1. 只输出有明确证据的称呼：原句里能看出某个人被这样叫（例如“阿零今天又…”、“叫老张的那个”）。\n"
-    "2. 不要输出普通词语、语气词、群名、头衔、等级、表情、口头禅。\n"
-    "3. 称呼本身尽量短（2-16 个字），不要带标点。\n"
-    "4. target 填该称呼指的人：优先原样抄群里出现的昵称；如果能看出 QQ 号也可以直接写号码。\n"
-    "5. 不确定就不要输出。宁缺毋滥。\n"
+    "2. 不要输出 @ 提及出来的名字：以 @ 开头的提及只是提醒，不算称呼；"
+    "只记录正文里实际用来称呼某人的叫法。\n"
+    "3. 不要输出普通词语、语气词、群名、头衔、等级、表情、口头禅。\n"
+    "4. 称呼本身尽量短（2-16 个字），不要带标点。\n"
+    "5. target 填该称呼指的人：优先原样抄群里出现的昵称；如果能看出 QQ 号也可以直接写号码。\n"
+    "6. 不确定就不要输出。宁缺毋滥。\n"
     "只输出 JSON，不要解释："
     '{"aliases":[{"alias":"俗名","target":"它指的人","confidence":0.8,"evidence":"原句片段"}]}'
     "\n没有符合条件的就输出 {\"aliases\":[]}。最多 6 条。"
@@ -71,6 +76,26 @@ SYSTEM_PROMPT = (
 
 def _norm_text(text: str) -> str:
     return " ".join(str(text or "").split())
+
+
+def _count_message_occurrences(lines: list, alias: str) -> int:
+    """v3.0.5：统计别名在最近消息里出现的条数（字面包含，用于过滤模型臆造）。"""
+    needle = _norm_text(alias)
+    if not needle:
+        return 0
+    total = 0
+    for item in lines or []:
+        text = _norm_text(item.get("text") if isinstance(item, dict) else item)
+        if needle in text:
+            total += 1
+    return total
+
+
+def _same_as_display_name(alias: str, display_name: str) -> bool:
+    """v3.0.5：别名与目标人物当前群名片/昵称相同时跳过（避免把 @ 名字当外号）。"""
+    left = _norm_text(alias).strip("“”\"' ")
+    right = _norm_text(display_name).strip("“”\"' ")
+    return bool(left and right and left == right)
 
 
 def record_message(group_id: str, user_id: str, display_name: str, text: str) -> None:
@@ -329,6 +354,8 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
     items = _parse_payload(_response_text(response))
     added = 0
     kept = []
+    dropped_occurrence = 0
+    dropped_name = 0
     for item in items:
         resolved = _resolve_target(item.get("target"), gid)
         if not resolved:
@@ -336,13 +363,22 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
         user_id = str(resolved.get("user_id") or "").strip()
         if not user_id:
             continue
+        alias_text = str(item.get("alias") or "").strip()
+        occurrences = _count_message_occurrences(picked, alias_text)
+        if occurrences < MIN_OCCURRENCES:
+            dropped_occurrence += 1
+            continue
+        if _same_as_display_name(alias_text, resolved.get("display_name") or ""):
+            dropped_name += 1
+            continue
         try:
             cid = IDENTITY.alias_candidate_add(
-                item.get("alias"),
+                alias_text,
                 user_id,
                 gid,
                 evidence=item.get("evidence") or "",
                 confidence=item.get("confidence") or 0.5,
+                occurrences=occurrences,
             )
         except Exception as exc:
             logger.debug(f"[quote] 写入俗名候选失败：{exc}")
@@ -355,6 +391,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
                     "alias": item.get("alias"),
                     "target": resolved.get("display_name") or item.get("target"),
                     "confidence": item.get("confidence"),
+                    "occurrences": occurrences,
                 }
             )
     _mark_ran(gid)
@@ -362,5 +399,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
         "added": added,
         "parsed": len(items),
         "used": len(picked),
+        "dropped_occurrence": dropped_occurrence,
+        "dropped_name": dropped_name,
         "items": kept,
     }

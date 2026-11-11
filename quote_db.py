@@ -261,6 +261,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             evidence TEXT NOT NULL DEFAULT '',
             evidence_user TEXT NOT NULL DEFAULT '',
             confidence REAL NOT NULL DEFAULT 0.5,
+            occurrences INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -299,6 +300,24 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         """
     )
     conn.commit()
+    _ensure_alias_candidate_columns(conn)
+
+
+def _ensure_alias_candidate_columns(conn: sqlite3.Connection) -> None:
+    """v3.0.5：旧库补 alias_candidate.occurrences 列（幂等，失败不影响启动）。"""
+    try:
+        columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(alias_candidate)")}
+    except sqlite3.Error:
+        return
+    if "occurrences" in columns:
+        return
+    try:
+        conn.execute(
+            "ALTER TABLE alias_candidate ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.commit()
+    except sqlite3.Error:
+        pass
 
 
 def _get_meta(conn: sqlite3.Connection, key: str) -> str | None:
@@ -1350,6 +1369,7 @@ def _alias_candidate_dict(row) -> dict:
         "evidence": str(row["evidence"] or ""),
         "evidence_user": str(row["evidence_user"] or ""),
         "confidence": float(row["confidence"] or 0.0),
+        "occurrences": int(row["occurrences"] or 0) if "occurrences" in keys else 0,
         "status": str(row["status"] or "pending"),
         "created_at": float(row["created_at"] or 0.0),
         "updated_at": float(row["updated_at"] or 0.0),
@@ -1411,8 +1431,9 @@ def add_alias_candidate(
     evidence: str,
     evidence_user: str,
     confidence: float,
+    occurrences: int = 0,
 ) -> int:
-    """写入一条待确认俗名；同一群+别名+目标只保留一条，重复出现时提升置信度。"""
+    """写入一条待确认俗名；同一群+别名+目标只保留一条，重复出现时取最高置信度与最大出现次数。"""
     conn = _connect()
     now = time.time()
     gid = str(group_id or "").strip()
@@ -1422,23 +1443,26 @@ def add_alias_candidate(
     if not gid or not key or not name or not uid:
         return 0
     value = max(0.0, min(1.0, float(confidence or 0.0)))
+    occ = max(0, int(occurrences or 0))
     with _lock:
         row = conn.execute(
-            "SELECT id, confidence FROM alias_candidate "
+            "SELECT id, confidence, occurrences FROM alias_candidate "
             "WHERE group_id = ? AND alias_key = ? AND target_user_id = ? AND status = 'pending'",
             (gid, key, uid),
         ).fetchone()
         if row:
             merged = max(float(row["confidence"] or 0.0), value)
+            merged_occ = max(int(row["occurrences"] or 0), occ)
             conn.execute(
                 "UPDATE alias_candidate SET alias_name = ?, display_name = ?, target_pid = ?, "
-                "evidence = ?, confidence = ?, updated_at = ? WHERE id = ?",
+                "evidence = ?, confidence = ?, occurrences = ?, updated_at = ? WHERE id = ?",
                 (
                     name,
                     str(display_name or "").strip()[:64],
                     str(target_pid or "").strip(),
                     str(evidence or "").strip()[:200],
                     merged,
+                    merged_occ,
                     now,
                     int(row["id"]),
                 ),
@@ -1447,8 +1471,8 @@ def add_alias_candidate(
             return int(row["id"])
         cur = conn.execute(
             "INSERT INTO alias_candidate (group_id, alias_key, alias_name, target_pid, "
-            "target_user_id, display_name, evidence, evidence_user, confidence, status, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+            "target_user_id, display_name, evidence, evidence_user, confidence, occurrences, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
             (
                 gid,
                 key,
@@ -1459,6 +1483,7 @@ def add_alias_candidate(
                 str(evidence or "").strip()[:200],
                 str(evidence_user or "").strip()[:64],
                 value,
+                occ,
                 now,
                 now,
             ),

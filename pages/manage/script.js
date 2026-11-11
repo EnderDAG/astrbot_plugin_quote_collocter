@@ -1971,6 +1971,12 @@
       main.appendChild(name);
       main.appendChild(target);
       main.appendChild(conf);
+      if (Number(item.occurrences || 0) > 0) {
+        const occ = document.createElement('span');
+        occ.className = 'badge muted';
+        occ.textContent = '出现 ' + Number(item.occurrences) + ' 次';
+        main.appendChild(occ);
+      }
       if (item.evidence) {
         const evidence = document.createElement('p');
         evidence.className = 'alias-evidence';
