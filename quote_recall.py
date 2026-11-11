@@ -186,16 +186,26 @@ def recall_candidates_sync(
         owner = uid
         name = ""
         if uid:
-            name = _clean_ai_name((summaries.get(uid) or {}).get("display_name"))
+            try:
+                name = _clean_ai_name(IDENTITY.preferred_name(uid, group_id=gid))
+            except Exception:
+                name = ""
+            if not name:
+                name = _clean_ai_name((summaries.get(uid) or {}).get("display_name"))
         speaker = str(entry.get("speaker") or "").strip()
         if not name and speaker:
             hit = alias_map.get(IdentityStore.name_key(speaker)) or {}
             alias_uid = str(hit.get("user_id") or "")
             if alias_uid:
                 owner = alias_uid
-                name = _clean_ai_name(
-                    (summaries.get(alias_uid) or {}).get("display_name")
-                )
+                try:
+                    name = _clean_ai_name(IDENTITY.preferred_name(alias_uid, group_id=gid))
+                except Exception:
+                    name = ""
+                if not name:
+                    name = _clean_ai_name(
+                        (summaries.get(alias_uid) or {}).get("display_name")
+                    )
         pid = str((summaries.get(owner) or {}).get("pid") or "") or (
             person_key((summaries.get(owner) or {}).get("person_id")) if owner else ""
         )
@@ -285,7 +295,13 @@ def recall_person_quotes_sync(
         if not isinstance(entry, dict):
             entry = {}
         speaker = str(entry.get("speaker") or "").strip()
-        who = _clean_ai_name((summaries.get(uid) or {}).get("display_name"))
+        who = ""
+        try:
+            who = _clean_ai_name(IDENTITY.preferred_name(uid, group_id=gid))
+        except Exception:
+            who = ""
+        if not who:
+            who = _clean_ai_name((summaries.get(uid) or {}).get("display_name"))
         if not who:
             who = _clean_speaker_name(speaker) or "群友"
         pid = str((summaries.get(uid) or {}).get("pid") or "") or person_key(

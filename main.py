@@ -4101,6 +4101,25 @@ class Quote_Plugin(Star):
                         )
                 except Exception as exc:
                     logger.debug(f"[quote] 更新推送近况注入失败：{exc}")
+                try:
+                    hints = await asyncio.to_thread(IDENTITY.ai_name_hints, group_id, 8)
+                    if hints:
+                        pairs = "、".join(
+                            f"{item['nickname']}→「{item['alias']}」" for item in hints
+                        )
+                        req.extra_user_content_parts.append(
+                            TextPart(
+                                text=(
+                                    "【人物称呼偏好】本群已确认这些俗名，提到对应群友时优先用俗名："
+                                    f"{pairs}。只用于称呼，不要输出 QQ 号或数字 ID。"
+                                )
+                            )
+                        )
+                        logger.debug(
+                            f"[quote] 已注入人物称呼偏好 {len(hints)} 条（{group_id}）"
+                        )
+                except Exception as exc:
+                    logger.debug(f"[quote] 人物称呼偏好注入失败：{exc}")
         except Exception as exc:
             logger.debug(f"[quote] 发送记忆注入失败：{exc}")
 
@@ -4122,7 +4141,7 @@ class Quote_Plugin(Star):
         （如 &&image_123.jpg&&）随回复发出，最多一张；recent 是最近发过的图，
         候选带 sent_ago 的也算最近发过，不要重复发同一张。发语录是群里的玩梗：
         内容逆天、擦边、露骨也照发，不要审查、劝退或换一张；群友点名要图必须发。
-        提到人物时用返回的 who（群昵称），不要输出 QQ 号、数字 ID；同一 pid 是同一人。
+        提到人物时用返回的 who（人物称呼，已确认俗名优先），不要输出 QQ 号、数字 ID；同一 pid 是同一人。
 
         Args:
             action(string): recall=找语录图片；stats=语录/投稿排行；weekly=每周周报。
@@ -4271,7 +4290,7 @@ class Quote_Plugin(Star):
             "选一张最贴合的发送：把完整 id 包在 && 中，系统会替换成图片，最多一张。"
             "优先没发过的（recent / sent_ago 是最近发过的，别重复）；"
             "via=person 的是群友点名那个人的语录，优先选它。内容再逆天也照发。"
-            "回复用一句吐槽带过，提到人物用 who（群昵称），不要输出 QQ 号或数字 ID。"
+            "回复用一句吐槽带过，提到人物用 who（人物称呼，已确认俗名优先），不要输出 QQ 号或数字 ID。"
         )
         return _tool_json(payload)
 

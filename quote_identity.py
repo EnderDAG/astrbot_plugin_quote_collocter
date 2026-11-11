@@ -896,6 +896,69 @@ class IdentityStore:
         with self._lock:
             return self._preferred_name_locked(self._load_locked(), uid, group_id)
 
+    def ai_name_hints(self, group_id: str = "", limit: int = 8) -> list:
+        """给大模型的人物称呼偏好：群昵称 → 已确认俗名（同群优先，最多 limit 条）。"""
+        gid = str(group_id or "").strip()
+        hints: list = []
+        try:
+            with self._lock:
+                state = self._load_locked()
+                users = state.get("users") or {}
+                aliases = state.get("aliases") or {}
+                best: dict = {}
+                for entry in aliases.values():
+                    if not isinstance(entry, dict):
+                        continue
+                    if not entry.get("confirmed", True):
+                        continue
+                    if str(entry.get("source") or "") not in ("learned", "manual", "merge"):
+                        continue
+                    name = str(entry.get("name") or "").strip()
+                    uid = str(entry.get("user_id") or "").strip()
+                    if not uid or not name or not (2 <= len(name) <= 16):
+                        continue
+                    if re.search(r"\d{4,}", name):
+                        continue
+                    egid = str(entry.get("group_id") or "").strip()
+                    if gid and egid and egid != gid:
+                        continue
+                    score = (
+                        0 if (gid and egid == gid) else 1,
+                        0 if str(entry.get("source") or "") == "learned" else 1,
+                        len(name),
+                        -float(entry.get("last_seen") or entry.get("created_at") or 0),
+                        name,
+                    )
+                    current = best.get(uid)
+                    if current is None or score < current[0]:
+                        best[uid] = (score, name)
+                for uid, (score, alias) in best.items():
+                    raw_name = identity_latest_name(users.get(uid) or {})
+                    if not raw_name:
+                        continue
+                    try:
+                        raw_key = re.sub(r"[\W_]+", "", str(raw_name or "").lower())
+                        alias_key = re.sub(r"[\W_]+", "", str(alias or "").lower())
+                    except Exception:
+                        raw_key, alias_key = str(raw_name or ""), str(alias or "")
+                    if not alias_key or raw_key == alias_key:
+                        continue
+                    hints.append(
+                        {
+                            "user_id": uid,
+                            "nickname": raw_name[:20],
+                            "alias": alias,
+                            "score": score,
+                        }
+                    )
+        except Exception:
+            return []
+        hints.sort(key=lambda item: item["score"])
+        return [
+            {"user_id": item["user_id"], "nickname": item["nickname"], "alias": item["alias"]}
+            for item in hints[: max(1, int(limit))]
+        ]
+
     def summaries(self) -> dict:
         """user_id → {person_id, pid, display_name, avatar_sha}，供语录列表补全。"""
         with self._lock:

@@ -133,7 +133,7 @@ from quote_core import *  # noqa: F401,F403
 
 PLUGIN_NAME = "quote_collocter"
 
-PLUGIN_VERSION = "3.0.5"
+PLUGIN_VERSION = "3.0.6"
 
 # v3.0.1 起插件自身数据（含语录图片、缩略图）统一放在 plugin_data/quote_collocter/ 下
 PLUGIN_DATA_DIR = Path("data") / "plugin_data" / PLUGIN_NAME
