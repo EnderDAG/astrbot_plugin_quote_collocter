@@ -4495,15 +4495,11 @@ class Quote_Plugin(Star):
     # 协作维护（P0）：群内维护命令 / 私聊登录 / 审计
     # ------------------------------------------------------------------ #
     def _maintain_power(self, group_id: str, user_id: str, raw_message) -> str:
-        role = ""
-        try:
-            if isinstance(raw_message, dict):
-                role = str(((raw_message.get("sender") or {}).get("role")) or "")
-        except Exception:
-            role = ""
-        if role in ("owner", "admin"):
+        # v3.0.7：群聊里的维护/设置权限统一为 AstrBot 管理员（AstrBot 配置的 admins_id），
+        # 不再沿用 QQ 群主/群管理员身份或协作成员身份。
+        if self.is_admin(user_id):
             return "curator"
-        return quote_collab.member_role(group_id, user_id)
+        return ""
 
     @staticmethod
     def _maintain_role_label(role: str) -> str:
@@ -4524,14 +4520,14 @@ class Quote_Plugin(Star):
         power = self._maintain_power(group_id, user_id, raw_message)
         if not power:
             return (
-                "⭐只有群主 / 管理员或已授权的维护成员可以使用维护命令。\n"
-                "如需协作维护，请群主或管理员发送「/维护 添加 <QQ>」添加成员。"
+                "⭐只有 AstrBot 管理员可以使用维护命令（见 AstrBot 配置的 admins_id）。\n"
+                "如需协作维护，请 AstrBot 管理员发送「/维护 添加 <QQ>」添加成员。"
             )
         help_text = (
             "⭐语录维护（协作）\n"
             "发送「/维护 名单」查看当前维护成员\n"
-            "「/维护 添加 <QQ> [编辑|管理]」添加成员（管理级）\n"
-            "「/维护 移除 <QQ>」移除成员（管理级）\n"
+            "「/维护 添加 <QQ> [编辑|管理]」添加成员（AstrBot 管理员）\n"
+            "「/维护 移除 <QQ>」移除成员（AstrBot 管理员）\n"
             "「/维护 邀请 <QQ> [编辑|管理]」生成 7 天有效的协作登录链接\n"
             "「/维护 日志 [条数]」查看最近操作记录\n"
             "「/维护 关闭」吊销本群全部邀请链接\n"
@@ -4544,7 +4540,7 @@ class Quote_Plugin(Star):
         if sub == "名单":
             members = await asyncio.to_thread(quote_collab.list_members, group_id)
             if not members:
-                return "⭐本群还没有维护成员。群主/管理员可发送「/维护 添加 <QQ> [编辑|管理]」。"
+                return "⭐本群还没有维护成员。AstrBot 管理员可发送「/维护 添加 <QQ> [编辑|管理]」。"
             lines = ["⭐本群维护成员："]
             for idx, m in enumerate(members[:20], 1):
                 label = self._maintain_role_label(str(m.get("role") or ""))
@@ -4554,7 +4550,7 @@ class Quote_Plugin(Star):
             return "\n".join(lines)
         if sub in ("添加", "移除", "邀请"):
             if power != "curator":
-                return "⭐只有管理级维护成员（群主/管理员/管理）可以进行成员管理。"
+                return "⭐只有 AstrBot 管理员可以进行成员管理。"
             qq = parts[1] if len(parts) > 1 else ""
             if not qq.isdigit():
                 return f"⭐用法：/维护 {sub} <QQ号> [编辑|管理]"
@@ -4646,7 +4642,7 @@ class Quote_Plugin(Star):
             found = await asyncio.to_thread(quote_collab.latest_invite_for, user_id)
             if not found:
                 yield event.plain_result(
-                    "⭐没有可用的维护邀请。请联系群主/管理员在群里发送「/维护 邀请 你的QQ」。"
+                    "⭐没有可用的维护邀请。请联系 AstrBot 管理员在群里发送「/维护 邀请 你的QQ」。"
                 )
                 return
             old_id, rec = found

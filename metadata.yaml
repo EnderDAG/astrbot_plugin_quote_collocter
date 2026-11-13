@@ -53,6 +53,7 @@ desc: |
 
   完整版本历史见 [CHANGELOG.md](https://github.com/EnderDAG/astrbot_plugin_quote_collocter/blob/main/CHANGELOG.md)。
 
+  **v3.0.7**：维护模块权限收紧——群内 `/维护` 仅 AstrBot 管理员可用，不再允许 QQ 群主/群管理员或维护成员执行群内维护命令。
   **v3.0.6**：AI 人物称呼偏好——已确认俗名优先于群昵称，AI 提到群友时优先用俗名称呼。
   **v3.0.5**：俗名学习按出现频次过滤（最近消息里至少出现 1 次才入候选），忽略 @ 提及，待确认列表展示出现次数。
   **v3.0.4**：版本号递增以在 AstrBot 插件市场重新提交，无功能性变更（代码、数据与 v3.0.3 一致）。
@@ -78,7 +79,7 @@ help: |
   开启群设置里的「让 AI 记住发过的语录」「允许 AI 语义召回并发送」后，机器人可以按语义检索并发送语录。
 
   数据保存在 data/plugin_data/quote_collocter/（quote.db 与 quotes_data/ 图片），备份整个目录即可。
-version: v3.0.6
+version: v3.0.7
 author: enderdag
 repo: https://github.com/EnderDAG/astrbot_plugin_quote_collocter
 astrbot_version: ">=4.17,<5"

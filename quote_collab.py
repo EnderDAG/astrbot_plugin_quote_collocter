@@ -731,7 +731,7 @@ async def handle_login(request: web.Request) -> web.Response:
     role = normalize_role(str(rec["role"]))
     groups = allowed_groups(qq, str(rec["group_id"]))
     if not groups:
-        return web.json_response({"error": "没有可维护的群，请联系群主/管理员重新授权"}, status=403)
+        return web.json_response({"error": "没有可维护的群，请联系 AstrBot 管理员重新授权"}, status=403)
     group_id = str(rec["group_id"])
     if group_id not in groups:
         group_id = groups[0]
