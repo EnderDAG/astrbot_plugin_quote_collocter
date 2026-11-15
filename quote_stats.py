@@ -129,6 +129,7 @@ except Exception:  # pragma: no cover - Pillow 缺失时退化为原图
 from quote_core import *  # noqa: F401,F403
 from quote_identity import IDENTITY
 from quote_core import META, PLUGIN_VERSION, group_ids, list_image_files
+from quote_reactions import stats_sync as _reaction_stats_sync
 from quote_semantic import SEMANTIC
 
 
@@ -292,11 +293,18 @@ def _statistics_sync(group_id: str = "", top: int = 20, trend_days: int = 30) ->
         row["rank"] = index
 
     last7 = sum(trend.get(today_day - i, 0) for i in range(7))
+    # v3.0.8：表情回应 / 引用评论统计（获赞最多语录/人物、评论最多人物、情绪分布）
+    try:
+        reaction_stats = _reaction_stats_sync(gid_filter, max(3, min(10, top)))
+    except Exception as exc:
+        logger.warning(f"[quote] 表情回应统计失败：{exc}")
+        reaction_stats = {}
     return {
         "version": PLUGIN_VERSION,
         "generated_at": now,
         "group_id": gid_filter,
         "trend_days": trend_days,
+        "reactions": reaction_stats,
         "totals": {
             "quotes": total_quotes,
             "bytes": total_bytes,

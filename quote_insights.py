@@ -11,6 +11,7 @@ from astrbot.api import logger
 
 from quote_core import META, group_ids, list_image_files
 from quote_identity import IDENTITY
+from quote_reactions import annual_summary_sync as _annual_reactions_sync
 from quote_semantic import SEMANTIC
 
 DAY = 86400
@@ -245,6 +246,12 @@ def annual_report_sync(pid: str, year: int = 0, group_id: str = "") -> dict:
     ]
     captions.sort(key=lambda row: (row["ts"], -len(row["caption"])))
     highlights = captions[-3:] if len(captions) > 3 else captions
+    # v3.0.8：本群年度表情回应 / 引用评论之最（获赞最多语录/人物、评论最多人物）
+    try:
+        reaction_stats = _annual_reactions_sync(int(year), group_id, 3)
+    except Exception as exc:
+        logger.warning(f"[quote] 年度表情回应统计失败：{exc}")
+        reaction_stats = {}
     return {
         "pid": pid,
         "person_id": detail.get("person_id") or "",
@@ -264,6 +271,7 @@ def annual_report_sync(pid: str, year: int = 0, group_id: str = "") -> dict:
         "top_hour": top_hour,
         "top_tags": top_tag_rows,
         "submitters": submitter_rows,
+        "reactions": reaction_stats,
         "groups": [
             {"group_id": gid, "count": count}
             for gid, count in sorted(groups.items(), key=lambda kv: -kv[1])

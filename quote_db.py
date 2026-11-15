@@ -297,6 +297,36 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             updated_at REAL NOT NULL,
             PRIMARY KEY (group_id, collection_id)
         );
+        CREATE TABLE IF NOT EXISTS sent_quote (
+            message_id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sent_quote_group ON sent_quote(group_id, created_at);
+        CREATE TABLE IF NOT EXISTS quote_reaction (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            emoji TEXT NOT NULL,
+            emotion TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            UNIQUE(group_id, filename, user_id, emoji)
+        );
+        CREATE INDEX IF NOT EXISTS idx_quote_reaction_file ON quote_reaction(group_id, filename);
+        CREATE INDEX IF NOT EXISTS idx_quote_reaction_time ON quote_reaction(created_at);
+        CREATE TABLE IF NOT EXISTS quote_comment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'reply',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_quote_comment_file ON quote_comment(group_id, filename);
+        CREATE INDEX IF NOT EXISTS idx_quote_comment_time ON quote_comment(created_at);
         """
     )
     conn.commit()
@@ -946,6 +976,9 @@ def info() -> dict:
             "sent_session": "sent_session",
             "doc": "doc",
             "collection": "collection",
+            "sent_quote": "sent_quote",
+            "quote_reaction": "quote_reaction",
+            "quote_comment": "quote_comment",
         }
         counts: dict[str, int] = {}
         for label, table in tables.items():

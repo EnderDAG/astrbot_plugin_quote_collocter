@@ -141,6 +141,52 @@ def render_card(report: dict, group_label: str = "") -> str:
     hotwords = [str(row.get("word") or "") for row in (report.get("hotwords") or [])][:3]
     hotwords = [word for word in hotwords if word]
 
+    # v3.0.8：表情回应 / 引用评论排行（没有数据时不占版面）
+    reactions = report.get("reactions") or {}
+    reaction_persons = [
+        {
+            "name": str(row.get("display_name") or "群友"),
+            "count": int(row.get("count") or 0),
+            "avatar_sha": str(row.get("avatar_sha") or ""),
+            "person_id": str(row.get("person_id") or ""),
+        }
+        for row in (reactions.get("top_persons") or [])
+    ]
+    hot_quotes = [
+        {
+            "name": str(row.get("caption") or row.get("filename") or "未命名语录"),
+            "count": int(row.get("count") or 0),
+            "avatar_sha": "",
+            "person_id": "",
+        }
+        for row in (reactions.get("top_quotes") or [])
+    ]
+    commenters = [
+        {
+            "name": str(row.get("display_name") or "群友"),
+            "count": int(row.get("count") or 0),
+            "avatar_sha": str(row.get("avatar_sha") or ""),
+            "person_id": str(row.get("person_id") or ""),
+        }
+        for row in (reactions.get("top_commenters") or [])
+    ]
+    extra_tables = []
+    if reaction_persons:
+        extra_tables.append(
+            ("获赞最多 · TOP", reaction_persons, ["排名", "语录人物", "获赞次数"], True)
+        )
+    if hot_quotes:
+        extra_tables.append(
+            ("获赞最多语录 · TOP", hot_quotes, ["排名", "语录内容", "获赞次数"], False)
+        )
+    if commenters:
+        extra_tables.append(
+            ("评论最多 · TOP", commenters, ["排名", "评论人", "评论条数"], True)
+        )
+    extra_height = sum(
+        22 + _table_height(len(rows)) for _title, rows, _headers, _avatar in extra_tables
+    )
+
     height = (
         132
         + 18
@@ -149,6 +195,7 @@ def render_card(report: dict, group_label: str = "") -> str:
         + _table_height(len(persons))
         + 22
         + _table_height(len(submitters))
+        + extra_height
         + 46
         + PAD
     )
@@ -203,6 +250,21 @@ def render_card(report: dict, group_label: str = "") -> str:
         ["排名", "投稿人", "投稿数"],
         "本周暂无投稿记录",
     )
+    for title, rows, headers, with_avatar in extra_tables:
+        y += 22
+        empty_text = (
+            "本周暂无表情回应" if "获赞" in title else "本周暂无引用评论"
+        )
+        y = _draw_rank_table(
+            canvas,
+            draw,
+            y,
+            title,
+            rows,
+            headers,
+            empty_text,
+            with_avatar=with_avatar,
+        )
 
     # 页脚
     _text(draw, (PAD, height - 40), "数据来自群内投稿语录 · 同一人物的多个昵称已合并统计", 12, MUTED)
@@ -231,7 +293,16 @@ def _cleanup(out_dir: Path) -> None:
         logger.warning(f"[quote] 清理周报图片失败：{exc}")
 
 
-def _draw_rank_table(canvas, draw, top_y: int, title: str, rows: list, headers: list, empty_text: str) -> int:
+def _draw_rank_table(
+    canvas,
+    draw,
+    top_y: int,
+    title: str,
+    rows: list,
+    headers: list,
+    empty_text: str,
+    with_avatar: bool = True,
+) -> int:
     _text(draw, (PAD + 4, top_y), title, 20, HEAD)
     y = top_y + 40
     _rounded(draw, (PAD, y, W - PAD, y + 42), 12, HEAD)
@@ -255,13 +326,18 @@ def _draw_rank_table(canvas, draw, top_y: int, title: str, rows: list, headers: 
         _text(draw, (PAD + 33, top + 35), str(index + 1), 16, "#FFFFFF", anchor="mm")
 
         size = 46
-        avatar = _avatar(row.get("avatar_sha"), size) or _avatar_placeholder(size, accent)
-        canvas.paste(avatar, (PAD + 66, top + 11), avatar)
-        name = _fit(row.get("name") or "群友", 17, 300)
-        _text(draw, (PAD + 126, top + 14), name, 17, INK)
-        person_id = str(row.get("person_id") or "")
-        if person_id:
-            _text(draw, (PAD + 126, top + 38), person_id, 12, MUTED)
+        if with_avatar:
+            avatar = _avatar(row.get("avatar_sha"), size) or _avatar_placeholder(size, accent)
+            canvas.paste(avatar, (PAD + 66, top + 11), avatar)
+            name_x = PAD + 126
+            name = _fit(row.get("name") or "群友", 17, 300)
+            person_id = str(row.get("person_id") or "")
+            if person_id:
+                _text(draw, (PAD + 126, top + 38), person_id, 12, MUTED)
+        else:
+            name = _fit(row.get("name") or "群友", 17, 560)
+            name_x = PAD + 66
+        _text(draw, (name_x, top + 14), name, 17, INK)
 
         count = int(row.get("count") or 0)
         count_x = W - PAD - 20

@@ -2922,6 +2922,7 @@
     const data = state.stats.data;
     if (!data) return;
     const totals = data.totals || {};
+    const reactions = data.reactions || {};
 
     const cards = el('stats-cards');
     cards.innerHTML = '';
@@ -2935,6 +2936,8 @@
       ['语义化', (totals.semantic || 0) + ' 张',
         '覆盖 ' + Math.round((totals.semantic_rate || 0) * 100) + '%'],
       ['占用空间', fmtBytes(totals.bytes || 0), '图片合计'],
+      ['表情回应', (reactions.reactions || 0) + ' 次',
+        '引用评论 ' + (reactions.comments || 0) + ' 条'],
     ];
     cardDefs.forEach((def) => {
       const card = document.createElement('div');
@@ -2969,7 +2972,128 @@
     });
     el('stats-trend-total').textContent = '共 ' + trendSum + ' 张';
 
+    renderReactionStats(reactions);
     renderGroupTable(el('stats-groups'), data.groups || []);
+  }
+
+  function renderReactionStats(payload) {
+    const data = payload || {};
+    const reactionTotal = Number(data.reactions) || 0;
+    const commentTotal = Number(data.comments) || 0;
+    const totalEl = el('stats-reactions-total');
+    if (totalEl) {
+      totalEl.textContent = reactionTotal || commentTotal
+        ? '表情回应 ' + reactionTotal + ' 次 · 引用评论 ' + commentTotal + ' 条'
+        : '暂无表情回应或引用评论';
+    }
+
+    const emotions = Array.isArray(data.emotions) ? data.emotions : [];
+    const emotionBox = el('stats-emotions');
+    if (emotionBox) {
+      emotionBox.innerHTML = '';
+      if (!emotions.length) {
+        emotionBox.innerHTML = '<p class="muted hint">还没有表情回应记录。</p>';
+      } else {
+        const emoMax = emotions.reduce((acc, item) => Math.max(acc, Number(item.count) || 0), 0) || 1;
+        const emoTable = document.createElement('table');
+        emoTable.className = 'stats-table';
+        emoTable.innerHTML =
+          '<thead><tr><th>情绪</th><th class="col-count">回应数</th><th class="col-share">占比</th></tr></thead>';
+        const emoBody = document.createElement('tbody');
+        emotions.forEach((item) => {
+          const count = Number(item.count) || 0;
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + escapeHtml(String(item.emotion || '其他')) + '</td>' +
+            '<td class="col-count"><b>' + count + '</b></td>' +
+            '<td class="col-share">' +
+              '<div class="stats-share"><span style="width:' + Math.max(4, Math.round((count / emoMax) * 100)) + '%"></span></div>' +
+              '<span class="muted">' + Math.round((count / (reactionTotal || count || 1)) * 100) + '%</span>' +
+            '</td>';
+          emoBody.appendChild(tr);
+        });
+        emoTable.appendChild(emoBody);
+        emotionBox.appendChild(emoTable);
+      }
+    }
+
+    const hotQuotes = Array.isArray(data.top_quotes) ? data.top_quotes : [];
+    const quoteBox = el('stats-hot-quotes');
+    if (quoteBox) {
+      quoteBox.innerHTML = '';
+      if (!hotQuotes.length) {
+        quoteBox.innerHTML = '<p class="muted hint">还没有被表情回应的语录。</p>';
+      } else {
+        const quoteTable = document.createElement('table');
+        quoteTable.className = 'stats-table';
+        quoteTable.innerHTML = '<thead><tr><th>语录内容</th><th class="col-count">获赞</th></tr></thead>';
+        const quoteBody = document.createElement('tbody');
+        hotQuotes.forEach((item) => {
+          const text = String(item.caption || item.filename || '未命名语录');
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td class="reaction-quote-cell" title="' + escapeHtml(String(item.filename || '')) + '">' +
+              escapeHtml(text.length > 32 ? text.slice(0, 32) + '…' : text) +
+            '</td>' +
+            '<td class="col-count"><b>' + (Number(item.count) || 0) + '</b></td>';
+          quoteBody.appendChild(tr);
+        });
+        quoteTable.appendChild(quoteBody);
+        quoteBox.appendChild(quoteTable);
+      }
+    }
+
+    renderReactionPeople(el('stats-reaction-people'), data.top_persons || [], '获赞', '次');
+    renderReactionPeople(el('stats-commenters'), data.top_commenters || [], '评论', '条');
+  }
+
+  function renderReactionPeople(target, rows, verb, unit) {
+    if (!target) return;
+    target.innerHTML = '';
+    if (!rows.length) {
+      target.innerHTML = '<p class="muted hint">还没有' + verb + '记录。</p>';
+      return;
+    }
+    const base = rows.reduce((acc, row) => acc + (Number(row.count) || 0), 0) || 1;
+    const table = document.createElement('table');
+    table.className = 'stats-table';
+    table.innerHTML =
+      '<thead><tr>' +
+      '<th class="col-rank">排名</th>' +
+      '<th class="col-person">人物</th>' +
+      '<th class="col-count">' + verb + '数</th>' +
+      '<th class="col-share">占比</th>' +
+      '</tr></thead>';
+    const body = document.createElement('tbody');
+    rows.forEach((row, index) => {
+      const count = Number(row.count) || 0;
+      const share = Math.round((count / base) * 100);
+      const rankClass = index < 3 ? ' stats-rank-top' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="col-rank"><span class="stats-rank' + rankClass + '">' + (index + 1) + '</span></td>' +
+        '<td class="col-person"><div class="stats-person"></div></td>' +
+        '<td class="col-count"><b>' + count + '</b> <span class="muted">' + unit + '</span></td>' +
+        '<td class="col-share"><span class="muted">' + share + '%</span></td>';
+      const person = tr.querySelector('.stats-person');
+      person.appendChild(avatarNode(row.avatar_sha, 'stats-avatar'));
+      const info = document.createElement('div');
+      info.className = 'stats-person-info';
+      const pid = row.person_id
+        ? '<div class="stats-pid muted">' + escapeHtml(String(row.person_id)) + '</div>'
+        : '';
+      const uid = !pid && row.uid
+        ? '<div class="stats-pid muted">QQ ' + escapeHtml(String(row.uid)) + '</div>'
+        : '';
+      info.innerHTML =
+        '<div class="stats-name">' + escapeHtml(String(row.display_name || '群友')) + '</div>' +
+        (pid || uid);
+      person.appendChild(info);
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    target.appendChild(table);
+    hydrateAvatars(target);
   }
 
   function renderRankTable(target, rows, kind) {

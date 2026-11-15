@@ -132,6 +132,13 @@ v2.14.0:
   * 新接口：insights/heatmap、insights/timeline、insights/annual、insights/annual_image
  * v2.14.1：更新推送改为摘要推送——按条列出精简后的更新点，条目过多时保留前 6 条并提示查看完整日志，不再只发一句「细节见更新日志」
 * v2.15.0：俗名学习——自动从群消息里学习群友俗名/外号，先进入「待确认俗名」队列，管理页确认后写入别名表（QQ > @提及 > 确认别名 > 群名片/昵称历史 > 形近）
+
+v3.0.8:
+  * 表情回应采集：机器人发出的语录图片被群友表情回应时按 emoji 归类情绪入库
+    （兼容 NapCat / SnowLuma 的 OneBot group_msg_emoji_like 通知，撤回可删除）
+  * 引用评论采集：群友引用回复机器人发出的语录图片时记录评论人 / 内容 / 时间
+  * 周报 / 年度报告与管理页统计新增「获赞最多语录 / 人物」「评论最多人物」
+  * 发送语录改为直发 OneBot send_group_msg 并回填 message_id → (群号, 文件名)，失败自动回退
 """
 
 from __future__ import annotations
@@ -184,6 +191,7 @@ import quote_db
 import quote_insights
 import quote_rating
 import quote_collab
+import quote_reactions
 from quote_annual_image import render_report as render_annual_report
 from quote_identity import *  # noqa: F401,F403
 from quote_identity import warm_avatar_thumbs_sync
@@ -2340,6 +2348,74 @@ class Quote_Plugin(Star):
             logger.debug(f"[quote] 获取平台实例失败：{exc}")
         return None
 
+    # ---------------- v3.0.8：语录发送与 message_id 关联 ----------------
+
+    @staticmethod
+    def _sent_message_id(resp) -> str:
+        """从 OneBot send_group_msg 返回值里取 message_id（兼容不同协议端包装）。"""
+        if not isinstance(resp, dict):
+            return ""
+        message_id = resp.get("message_id")
+        if message_id in (None, ""):
+            data = resp.get("data")
+            if isinstance(data, dict):
+                message_id = data.get("message_id")
+        return str(message_id or "").strip()
+
+    async def _send_quote_image(self, event, group_id: str, path: str, name: str = ""):
+        """直接发送一张语录图片并回填 message_id 映射。
+
+        AstrBot 的 ``event.send()`` 不返回 message_id，这里绕开响应管线直接调用
+        aiocqhttp 的 ``send_group_msg`` 拿到返回值；只要失败（内部 API 变化、
+        协议端不支持等）就回退到原来的 ``event.image_result``。
+        """
+        filename = str(name or Path(path).name)
+        try:
+            bot = getattr(event, "bot", None) or self._bot_client()
+            if bot is not None and hasattr(bot, "send_group_msg"):
+                segments = await AiocqhttpMessageEvent._parse_onebot_json(
+                    MessageChain([Image.fromFileSystem(str(path))])
+                )
+                resp = await bot.send_group_msg(
+                    group_id=int(str(group_id)), message=segments
+                )
+                message_id = self._sent_message_id(resp)
+                if message_id:
+                    quote_reactions.record_sent(message_id, group_id, filename)
+                    return event.image_result(str(path))
+                logger.warning(
+                    "[quote] 直发语录图片未取到 message_id，回退 image_result"
+                )
+        except Exception as exc:
+            logger.warning(f"[quote] 直发语录图片失败，回退 image_result：{exc}")
+        return event.image_result(str(path))
+
+    async def _send_recall_chain(
+        self, event, group_id: str, components: list, names: list
+    ) -> bool:
+        """AI 召回：直接发送「文本 + 语录图片」整条链，成功返回 True。"""
+        try:
+            bot = getattr(event, "bot", None) or self._bot_client()
+            if bot is None or not hasattr(bot, "send_group_msg"):
+                return False
+            segments = await AiocqhttpMessageEvent._parse_onebot_json(
+                MessageChain(list(components))
+            )
+            resp = await bot.send_group_msg(
+                group_id=int(str(group_id)), message=segments
+            )
+            message_id = self._sent_message_id(resp)
+            if not message_id:
+                logger.warning("[quote] AI 召回直发未取到 message_id，保留原发送链")
+                return False
+            if names:
+                # 一条消息里可能有多张图，message_id 只能关联第一张（首选图）
+                quote_reactions.record_sent(message_id, group_id, str(names[0]))
+            return True
+        except Exception as exc:
+            logger.warning(f"[quote] AI 召回直发失败，回退原发送链：{exc}")
+            return False
+
     async def _fetch_group_members(self) -> dict:
         """拉取已收录群的成员列表，用于首次补全 / 换名换头像后的兜底识别。"""
         rows: list = []
@@ -4460,11 +4536,16 @@ class Quote_Plugin(Star):
                     Image.fromFileSystem(str(group_dir(group_id) / fallback_id))
                 )
                 remember_sent_quote(event, group_id, fallback_id)
-                result.chain = cleaned
                 logger.info(
                     f"[quote] AI 未写标记，自动兜底发送 top1："
                     f"群 {group_id} / {fallback_id}"
                 )
+                if await self._send_recall_chain(
+                    event, group_id, cleaned, [fallback_id]
+                ):
+                    result.chain = []
+                    return
+                result.chain = cleaned
                 return
             if not images and fallback_id:
                 images.append(fallback_id)
@@ -4479,6 +4560,9 @@ class Quote_Plugin(Star):
                 logger.info(
                     f"[quote] AI 召回发送：群 {group_id} / {', '.join(images)}"
                 )
+                if await self._send_recall_chain(event, group_id, cleaned, images):
+                    result.chain = []
+                    return
             else:
                 if invalids:
                     logger.info(
@@ -4705,6 +4789,30 @@ class Quote_Plugin(Star):
         except Exception as exc:
             logger.debug(f"[quote] 人物身份记录失败：{exc}")
 
+        # ---------------- v3.0.8：语录表情回应 / 引用评论 ----------------
+        if isinstance(raw_message, dict):
+            notice_type = str(raw_message.get("notice_type") or "")
+            if notice_type == "group_msg_emoji_like":
+                try:
+                    changed = await asyncio.to_thread(
+                        quote_reactions.handle_emoji_notice, raw_message
+                    )
+                    if changed:
+                        logger.info(f"[quote] 语录表情回应已记录 {changed} 条")
+                except Exception as exc:
+                    logger.warning(f"[quote] 表情回应处理失败：{exc}")
+                return
+            if msg and not notice_type:
+                try:
+                    matched = await asyncio.to_thread(
+                        quote_reactions.handle_reply_message, message_obj, user_id
+                    )
+                except Exception as exc:
+                    matched = False
+                    logger.warning(f"[quote] 引用评论处理失败：{exc}")
+                if matched:
+                    return
+
         # ---------------- 投稿系统 ----------------
         if msg.startswith("投稿权限"):
             if not self.is_admin(user_id):
@@ -4759,7 +4867,9 @@ class Quote_Plugin(Star):
             if pool:
                 picked = random.choice(pool)
                 remember_sent_quote(event, group_id, picked)
-                yield event.image_result(str(group_dir(group_id) / picked))
+                yield await self._send_quote_image(
+                    event, group_id, str(group_dir(group_id) / picked), picked
+                )
             else:
                 yield event.plain_result(
                     "⭐本群还没有可展示的群友语录哦~\n请发送「语录投稿+图片」进行添加！"
@@ -4798,7 +4908,9 @@ class Quote_Plugin(Star):
                     yield event.plain_result("⭐本群还没有标记为限制级的语录。")
                 else:
                     picked = random.choice(pool)
-                    yield event.image_result(str(group_dir(group_id) / picked))
+                    yield await self._send_quote_image(
+                        event, group_id, str(group_dir(group_id) / picked), picked
+                    )
 
         elif (
             msg.startswith("/语录排行")
@@ -4878,7 +4990,9 @@ class Quote_Plugin(Star):
                 for name in names:
                     path = group_dir(group_id) / name
                     if path.is_file():
-                        yield event.image_result(str(path))
+                        yield await self._send_quote_image(
+                            event, group_id, str(path), name
+                        )
 
         elif msg.startswith("/抽语录") or msg.startswith("抽语录"):
             digits = "".join(ch for ch in msg if ch.isdigit())
@@ -4897,7 +5011,9 @@ class Quote_Plugin(Star):
                     path = group_dir(group_id) / name
                     if path.is_file():
                         remember_sent_quote(event, group_id, name)
-                        yield event.image_result(str(path))
+                        yield await self._send_quote_image(
+                            event, group_id, str(path), name
+                        )
 
         elif msg.startswith("/语录查") or msg.startswith("语录查"):
             keyword = re.sub(r"^/?语录查", "", msg).strip()
@@ -4922,7 +5038,9 @@ class Quote_Plugin(Star):
                         for name in names:
                             path = group_dir(group_id) / name
                             if path.is_file():
-                                yield event.image_result(str(path))
+                                yield await self._send_quote_image(
+                                    event, group_id, str(path), name
+                                )
 
         elif msg.startswith("/语录人物") or msg.startswith("语录人物"):
             keyword = re.sub(r"^/?语录人物", "", msg).strip()
@@ -4938,7 +5056,9 @@ class Quote_Plugin(Star):
                     for item in names:
                         path = group_dir(group_id) / item
                         if path.is_file():
-                            yield event.image_result(str(path))
+                            yield await self._send_quote_image(
+                                event, group_id, str(path), item
+                            )
 
         elif msg in ("/合集", "合集"):
             yield event.plain_result(await asyncio.to_thread(collection_text_list, group_id))
@@ -4956,7 +5076,9 @@ class Quote_Plugin(Star):
                     for item in names:
                         path = group_dir(group_id) / item
                         if path.is_file():
-                            yield event.image_result(str(path))
+                            yield await self._send_quote_image(
+                                event, group_id, str(path), item
+                            )
 
         elif msg in ("/周报", "周报", "/语录周报", "/周报 上周", "周报 上周"):
             offset = -1 if "上周" in msg else 0
@@ -5098,7 +5220,12 @@ class Quote_Plugin(Star):
                             remember_sent_quote(
                                 event, group_id, Path(selected_image_path).name
                             )
-                            yield event.image_result(selected_image_path)
+                            yield await self._send_quote_image(
+                                event,
+                                group_id,
+                                selected_image_path,
+                                Path(selected_image_path).name,
+                            )
                         else:
                             selected_text = random.choice(
                                 [

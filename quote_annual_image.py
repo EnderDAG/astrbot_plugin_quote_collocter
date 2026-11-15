@@ -98,6 +98,35 @@ def render_report(report: dict) -> str:
     group_label = str(report.get("group_id") or "")
     generated = time.strftime("%Y-%m-%d %H:%M")
 
+    # v3.0.8：本群年度之最（表情回应 / 引用评论）
+    reactions = report.get("reactions") or {}
+    best_rows = []
+    hot_quote = (reactions.get("top_quotes") or [None])[0]
+    if hot_quote:
+        snippet = str(hot_quote.get("caption") or hot_quote.get("filename") or "")
+        if snippet:
+            best_rows.append(
+                ("获赞最多语录", snippet, f"{int(hot_quote.get('count') or 0)} 次")
+            )
+    hot_person = (reactions.get("top_persons") or [None])[0]
+    if hot_person:
+        best_rows.append(
+            (
+                "获赞最多人物",
+                str(hot_person.get("display_name") or "群友"),
+                f"{int(hot_person.get('count') or 0)} 次",
+            )
+        )
+    hot_commenter = (reactions.get("top_commenters") or [None])[0]
+    if hot_commenter:
+        best_rows.append(
+            (
+                "评论最多人物",
+                str(hot_commenter.get("display_name") or "群友"),
+                f"{int(hot_commenter.get('count') or 0)} 条",
+            )
+        )
+
     height = (
         170  # header
         + 150  # hero
@@ -109,6 +138,7 @@ def render_report(report: dict) -> str:
         + 40
         + (120 * 3 + 40 if captions else 0)  # captions cards
         + 40
+        + (70 + 64 * len(best_rows) if best_rows else 0)  # 年度之最
         + (150 if submitters else 0)
         + 90  # footer
     )
@@ -206,6 +236,24 @@ def render_report(report: dict) -> str:
             _text(draw, (W - PAD - 24, card_y + 84), str(row.get("name") or ""), 14, MUTED, anchor="ra")
             card_y += 120
         y = card_y + 20
+
+    # 本群年度之最（v3.0.8）
+    if best_rows:
+        _text(draw, (PAD, y + 10), "本群年度之最", 24, MUTED)
+        row_y = y + 50
+        for label, value, count in best_rows[:3]:
+            _rounded(draw, (PAD, row_y, W - PAD, row_y + 56), 16, CARD_ALT)
+            _text(draw, (PAD + 24, row_y + 16), label, 18, GOLD)
+            _text(
+                draw,
+                (PAD + 200, row_y + 16),
+                _fit(str(value), 20, INNER - 360),
+                20,
+                INK,
+            )
+            _text(draw, (W - PAD - 24, row_y + 16), count, 18, MUTED, anchor="ra")
+            row_y += 64
+        y = row_y
 
     # 投稿最多的人
     content_bottom = y + 40

@@ -7,6 +7,7 @@ import time
 from astrbot.api import logger
 
 import quote_db
+import quote_reactions
 from quote_core import META, group_ids, list_image_files
 from quote_identity import IDENTITY, _clean_ai_name
 from quote_semantic import SEMANTIC
@@ -128,6 +129,12 @@ def weekly_report_sync(group_id: str, now: float = None, offset: int = 0) -> dic
 
     person_list = person_rows(top_persons)
     submitter_list = person_rows(top_submitters)
+    # v3.0.8：本周表情回应 / 引用评论统计（获赞最多语录、获赞最多人物、评论最多人物）
+    try:
+        reactions = quote_reactions.window_summary_sync(gid, start, end, limit=3)
+    except Exception as exc:
+        logger.warning(f"[quote] 周报表情回应统计失败：{exc}")
+        reactions = {}
     return {
         "group_id": gid,
         "week_start": start,
@@ -138,6 +145,7 @@ def weekly_report_sync(group_id: str, now: float = None, offset: int = 0) -> dic
         "delta": count - prev_count,
         "persons": person_list,
         "submitters": submitter_list,
+        "reactions": reactions,
         "covers": covers,
         "hotwords": hotwords,
         "total": len(files),
@@ -165,6 +173,30 @@ def report_text(group_id: str, report: dict = None, now: float = None) -> str:
             f"{row['name']} {row['count']} 张" for row in report["submitters"][:3]
         )
         lines.append(f"✍️ 本周投稿最多：{top}")
+    reacts = report.get("reactions") or {}
+    if reacts.get("reactions"):
+        lines.append(f"❤️ 本周表情回应 {reacts['reactions']} 次")
+        top = "、".join(
+            f"{row['display_name']} {row['count']} 次"
+            for row in (reacts.get("top_persons") or [])[:3]
+        )
+        if top:
+            lines.append(f"😍 获赞最多：{top}")
+        hot_quote = (reacts.get("top_quotes") or [{}])[0]
+        if hot_quote.get("count"):
+            snippet = hot_quote.get("caption") or hot_quote.get("filename") or ""
+            if snippet:
+                lines.append(
+                    f"🏆 获赞最多语录：{snippet}（{hot_quote['count']} 次）"
+                )
+    if reacts.get("comments"):
+        lines.append(f"💬 本周引用评论 {reacts['comments']} 条")
+        top = "、".join(
+            f"{row['display_name']} {row['count']} 条"
+            for row in (reacts.get("top_commenters") or [])[:3]
+        )
+        if top:
+            lines.append(f"🗣️ 评论最多：{top}")
     lines.append(f"📊 群内累计 {report['total']} 张")
     return "\n".join(lines)
 
