@@ -1,4 +1,4 @@
-"""quote_reactions.py — 语录表情回应 / 引用评论采集与统计（v3.0.8）。
+"""quote_reactions.py — 语录表情回应 / 引用评论采集与统计（v3.1.0）。
 
 本模块负责三类数据的采集与聚合：
 
@@ -7,7 +7,8 @@
 * ``quote_reaction``：群友对语录图片消息的表情回应，按 emoji 归并到情绪；
 * ``quote_comment``：引用回复机器人语录图片消息的评论（评论人 / 内容 / 时间）；
 * 对外提供周报、年度报告与管理页需要的聚合：
-  「获赞最多语录」「获赞最多人物」「评论最多人物」，以及情绪分布。
+  「获赞最多语录」「获赞最多人物」「评论最多人物」，以及情绪分布、
+  近 30 天逐日回应 / 评论趋势（管理页图表用）。
 
 设计说明：
 
@@ -23,6 +24,7 @@
 
 from __future__ import annotations
 
+import datetime
 import time
 
 from astrbot.api import logger
@@ -39,6 +41,9 @@ SENT_QUOTE_TTL = 120 * 86400
 
 # 语录内容片段在统计结果里的最大长度
 CAPTION_LIMIT = 48
+
+# 管理页趋势图默认统计天数（按本地日期补零）
+TREND_DAYS = 30
 
 # 情绪展示顺序
 EMOTION_ORDER = ["喜欢", "欢乐", "赞", "心动", "惊讶", "热烈", "伤感", "生气", EMOTION_OTHER]
@@ -542,11 +547,47 @@ def handle_reply_message(message_obj, user_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _trend_series(
+    reaction_rows: list, comment_rows: list, days: int = TREND_DAYS
+) -> list:
+    """把回应 / 评论记录按本地日期聚合成近 N 天序列（缺日补 0）。"""
+    try:
+        days = max(1, min(90, int(days or TREND_DAYS)))
+    except (TypeError, ValueError):
+        days = TREND_DAYS
+    today = datetime.date.today()
+    date_list = [today - datetime.timedelta(days=days - 1 - i) for i in range(days)]
+    date_keys = [item.isoformat() for item in date_list]
+    reactions_by_day = {key: 0 for key in date_keys}
+    comments_by_day = {key: 0 for key in date_keys}
+    for rows, bucket in (
+        (reaction_rows, reactions_by_day),
+        (comment_rows, comments_by_day),
+    ):
+        for row in rows:
+            try:
+                ts = float(row.get("created_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            key = time.strftime("%Y-%m-%d", time.localtime(ts))
+            if key in bucket:
+                bucket[key] += 1
+    return [
+        {
+            "date": key,
+            "reactions": reactions_by_day[key],
+            "comments": comments_by_day[key],
+        }
+        for key in date_keys
+    ]
+
+
 def _aggregate(
     group_id: str = "",
     start=None,
     end=None,
     limit: int = 5,
+    trend_days: int = 0,
 ) -> dict:
     """聚合表情回应与评论数据，产出三项排行与情绪分布。"""
     gid_filter = str(group_id or "").strip()
@@ -675,6 +716,20 @@ def _aggregate(
             comment_by_quote.items(), key=lambda kv: (-kv[1], kv[0])
         )[:limit]
     ]
+    # 评论最多的语录（附带内容片段，管理页横条图用）
+    comment_quote_rows = []
+    for (gid, name), count in sorted(
+        comment_by_quote.items(), key=lambda kv: (-kv[1], kv[0])
+    )[:limit]:
+        _uid, caption = _quote_author(gid, name, meta_cache, sem_cache)
+        comment_quote_rows.append(
+            {
+                "group_id": gid,
+                "filename": name,
+                "caption": caption[:CAPTION_LIMIT],
+                "count": count,
+            }
+        )
 
     return {
         "reactions": len(reaction_rows),
@@ -685,12 +740,18 @@ def _aggregate(
         "top_persons": person_rows,
         "top_commenters": commenter_rows,
         "top_commented_quotes": commented_rows,
+        "top_comment_quotes": comment_quote_rows,
+        "trend": _trend_series(reaction_rows, comment_rows, trend_days)
+        if trend_days
+        else [],
     }
 
 
-def stats_sync(group_id: str = "", top: int = 5) -> dict:
-    """管理页 / 群统计：全部时间范围的表情回应与评论聚合。"""
-    return _aggregate(group_id, None, None, top)
+def stats_sync(
+    group_id: str = "", top: int = 5, trend_days: int = TREND_DAYS
+) -> dict:
+    """管理页 / 群统计：全部时间范围的表情回应与评论聚合（含近 N 天趋势）。"""
+    return _aggregate(group_id, None, None, top, trend_days)
 
 
 def window_summary_sync(

@@ -2976,6 +2976,250 @@
     renderGroupTable(el('stats-groups'), data.groups || []);
   }
 
+  // ---------------- v3.1.0：表情回应 / 评论图形化统计（纯 SVG，零第三方依赖） ----------------
+
+  const CHART_COLORS = [
+    '#111111', '#b5e944', '#7a5f10', '#8c8a86', '#a03a29',
+    '#3e3c3d', '#d0e516', '#c6c0b3', '#6a6868'
+  ];
+
+  function chartSvgEl(tag, attrs, text) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    const map = attrs || {};
+    Object.keys(map).forEach((key) => {
+      node.setAttribute(key, String(map[key]));
+    });
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function chartShorten(value, limit) {
+    const text = String(value === undefined || value === null ? '' : value);
+    return text.length > limit ? text.slice(0, limit) + '…' : text;
+  }
+
+  function chartPlaceholder(target, text) {
+    if (!target) return;
+    target.innerHTML = '<p class="muted chart-empty">' + escapeHtml(text) + '</p>';
+  }
+
+  function chartLegend(target, entries) {
+    if (!target || !entries.length) return;
+    const legend = document.createElement('div');
+    legend.className = 'chart-legend';
+    entries.forEach((entry) => {
+      const row = document.createElement('div');
+      row.className = 'chart-legend-row';
+      row.innerHTML =
+        '<span class="chart-swatch" style="background:' + entry.color + '"></span>' +
+        '<span class="chart-legend-label">' + escapeHtml(entry.label) + '</span>' +
+        '<b>' + escapeHtml(String(entry.value)) + '</b>' +
+        '<span class="muted">' + escapeHtml(String(entry.suffix || '')) + '</span>';
+      legend.appendChild(row);
+    });
+    target.appendChild(legend);
+  }
+
+  function renderDonutChart(target, items) {
+    if (!target) return;
+    target.innerHTML = '';
+    const rows = (items || []).filter((item) => (Number(item.count) || 0) > 0);
+    const total = rows.reduce((acc, item) => acc + (Number(item.count) || 0), 0);
+    if (!rows.length || !total) {
+      chartPlaceholder(target, '还没有表情回应记录。');
+      return;
+    }
+    const size = 210;
+    const center = size / 2;
+    const radius = 74;
+    const thickness = 26;
+    const circumference = 2 * Math.PI * radius;
+    const svg = chartSvgEl('svg', {
+      viewBox: '0 0 ' + size + ' ' + size,
+      class: 'chart-svg chart-donut',
+      role: 'img',
+      'aria-label': '情绪分布环形图'
+    });
+    let offset = 0;
+    rows.forEach((item, index) => {
+      const count = Number(item.count) || 0;
+      const length = (count / total) * circumference;
+      const visible = Math.max(0, length - 2);
+      const arc = chartSvgEl('circle', {
+        cx: center,
+        cy: center,
+        r: radius,
+        fill: 'none',
+        stroke: CHART_COLORS[index % CHART_COLORS.length],
+        'stroke-width': thickness,
+        'stroke-dasharray': visible + ' ' + (circumference - visible),
+        'stroke-dashoffset': -offset,
+        transform: 'rotate(-90 ' + center + ' ' + center + ')'
+      });
+      arc.appendChild(chartSvgEl('title', {}, item.label + '：' + count + ' 次'));
+      svg.appendChild(arc);
+      offset += length;
+    });
+    svg.appendChild(chartSvgEl('text', {
+      x: center, y: center - 2, 'text-anchor': 'middle', class: 'chart-total'
+    }, String(total)));
+    svg.appendChild(chartSvgEl('text', {
+      x: center, y: center + 18, 'text-anchor': 'middle', class: 'chart-caption'
+    }, '总回应'));
+    target.appendChild(svg);
+    chartLegend(target, rows.map((item, index) => ({
+      color: CHART_COLORS[index % CHART_COLORS.length],
+      label: String(item.label || '其他'),
+      value: (Number(item.count) || 0) + ' 次',
+      suffix: Math.round(((Number(item.count) || 0) / total) * 100) + '%'
+    })));
+  }
+
+  function renderQuoteBarChart(target, quotes) {
+    if (!target) return;
+    target.innerHTML = '';
+    const rows = (quotes || []).filter((item) => (Number(item.count) || 0) > 0).slice(0, 5);
+    if (!rows.length) {
+      chartPlaceholder(target, '还没有相关语录记录。');
+      return;
+    }
+    const max = rows.reduce((acc, item) => Math.max(acc, Number(item.count) || 0), 0) || 1;
+    const width = 480;
+    const rowHeight = 44;
+    const height = rows.length * rowHeight + 6;
+    const barWidth = width - 46;
+    const svg = chartSvgEl('svg', {
+      viewBox: '0 0 ' + width + ' ' + height,
+      class: 'chart-svg chart-bars',
+      role: 'img'
+    });
+    rows.forEach((item, index) => {
+      const count = Number(item.count) || 0;
+      const full = String(item.caption || item.filename || '未命名语录');
+      const top = index * rowHeight + 4;
+      svg.appendChild(chartSvgEl('text', {
+        x: 0, y: top + 12, class: 'chart-label'
+      }, chartShorten(full, 30)));
+      svg.appendChild(chartSvgEl('text', {
+        x: width, y: top + 12, 'text-anchor': 'end', class: 'chart-value'
+      }, count + ' 次'));
+      svg.appendChild(chartSvgEl('rect', {
+        x: 0, y: top + 18, width: barWidth, height: 12, rx: 6, class: 'chart-track'
+      }));
+      const fill = chartSvgEl('rect', {
+        x: 0,
+        y: top + 18,
+        width: Math.max(6, Math.round((count / max) * barWidth)),
+        height: 12,
+        rx: 6,
+        class: index === 0 ? 'chart-bar chart-bar-top' : 'chart-bar'
+      });
+      fill.appendChild(chartSvgEl('title', {},
+        '第 ' + (index + 1) + ' 名 · ' + count + ' 次\n' + full + '\n' + String(item.filename || '')));
+      svg.appendChild(fill);
+    });
+    target.appendChild(svg);
+  }
+
+  function buildReactionTrendSeries(trend) {
+    const rows = Array.isArray(trend) ? trend : [];
+    const points = rows.map((item) => ({
+      date: String((item && item.date) || ''),
+      reactions: Number((item && item.reactions) || 0) || 0,
+      comments: Number((item && item.comments) || 0) || 0
+    }));
+    let max = 1;
+    const sums = { reactions: 0, comments: 0 };
+    points.forEach((point) => {
+      max = Math.max(max, point.reactions, point.comments);
+      sums.reactions += point.reactions;
+      sums.comments += point.comments;
+    });
+    return { points: points, max: max, sums: sums };
+  }
+
+  function renderTrendChart(target, series) {
+    if (!target) return;
+    target.innerHTML = '';
+    const data = series || buildReactionTrendSeries([]);
+    const points = (data.points || []).filter((point) => point.date);
+    if (!points.length || (!data.sums.reactions && !data.sums.comments)) {
+      chartPlaceholder(target, '近 30 天还没有表情回应或引用评论。');
+      return;
+    }
+    const width = 520;
+    const height = 190;
+    const padLeft = 34;
+    const padRight = 8;
+    const padTop = 14;
+    const padBottom = 26;
+    const plotWidth = width - padLeft - padRight;
+    const plotHeight = height - padTop - padBottom;
+    const max = data.max || 1;
+    const stepX = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
+    const svg = chartSvgEl('svg', {
+      viewBox: '0 0 ' + width + ' ' + height,
+      class: 'chart-svg chart-line',
+      role: 'img',
+      'aria-label': '近 30 天表情回应与引用评论趋势'
+    });
+    [0, 0.5, 1].forEach((ratio) => {
+      const y = padTop + plotHeight * (1 - ratio);
+      svg.appendChild(chartSvgEl('line', {
+        x1: padLeft, y1: y, x2: width - padRight, y2: y, class: 'chart-grid'
+      }));
+      svg.appendChild(chartSvgEl('text', {
+        x: padLeft - 6, y: y + 3, 'text-anchor': 'end', class: 'chart-axis'
+      }, String(Math.round(max * ratio))));
+    });
+    const drawLine = (key, color, withArea) => {
+      const coords = points.map((point, index) => ({
+        x: padLeft + stepX * index,
+        y: padTop + plotHeight * (1 - (point[key] / max))
+      }));
+      if (withArea && coords.length > 1) {
+        const bottom = padTop + plotHeight;
+        const areaPath = coords.map((c, i) => (i ? 'L' : 'M') + c.x.toFixed(1) + ' ' + c.y.toFixed(1)).join(' ')
+          + ' L' + coords[coords.length - 1].x.toFixed(1) + ' ' + bottom
+          + ' L' + coords[0].x.toFixed(1) + ' ' + bottom + ' Z';
+        svg.appendChild(chartSvgEl('path', { d: areaPath, class: 'chart-area' }));
+      }
+      const path = coords.map((c, i) => (i ? 'L' : 'M') + c.x.toFixed(1) + ' ' + c.y.toFixed(1)).join(' ');
+      svg.appendChild(chartSvgEl('path', {
+        d: path, fill: 'none', stroke: color, 'stroke-width': 2, class: 'chart-line-path'
+      }));
+      points.forEach((point, index) => {
+        const dot = chartSvgEl('circle', {
+          cx: coords[index].x.toFixed(1),
+          cy: coords[index].y.toFixed(1),
+          r: 2.4,
+          fill: color,
+          class: 'chart-dot'
+        });
+        dot.appendChild(chartSvgEl('title', {},
+          point.date + '\n回应 ' + point.reactions + ' 次 · 评论 ' + point.comments + ' 条'));
+        svg.appendChild(dot);
+      });
+    };
+    drawLine('reactions', '#111111', true);
+    drawLine('comments', '#a03a29', false);
+    const labelStep = Math.max(1, Math.ceil(points.length / 6));
+    points.forEach((point, index) => {
+      if (index % labelStep !== 0 && index !== points.length - 1) return;
+      svg.appendChild(chartSvgEl('text', {
+        x: padLeft + stepX * index,
+        y: height - 8,
+        'text-anchor': 'middle',
+        class: 'chart-axis'
+      }, point.date.slice(5)));
+    });
+    target.appendChild(svg);
+    chartLegend(target, [
+      { color: '#111111', label: '表情回应', value: data.sums.reactions + ' 次', suffix: '' },
+      { color: '#a03a29', label: '引用评论', value: data.sums.comments + ' 条', suffix: '' }
+    ]);
+  }
+
   function renderReactionStats(payload) {
     const data = payload || {};
     const reactionTotal = Number(data.reactions) || 0;
@@ -2988,60 +3232,17 @@
     }
 
     const emotions = Array.isArray(data.emotions) ? data.emotions : [];
-    const emotionBox = el('stats-emotions');
-    if (emotionBox) {
-      emotionBox.innerHTML = '';
-      if (!emotions.length) {
-        emotionBox.innerHTML = '<p class="muted hint">还没有表情回应记录。</p>';
-      } else {
-        const emoMax = emotions.reduce((acc, item) => Math.max(acc, Number(item.count) || 0), 0) || 1;
-        const emoTable = document.createElement('table');
-        emoTable.className = 'stats-table';
-        emoTable.innerHTML =
-          '<thead><tr><th>情绪</th><th class="col-count">回应数</th><th class="col-share">占比</th></tr></thead>';
-        const emoBody = document.createElement('tbody');
-        emotions.forEach((item) => {
-          const count = Number(item.count) || 0;
-          const tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td>' + escapeHtml(String(item.emotion || '其他')) + '</td>' +
-            '<td class="col-count"><b>' + count + '</b></td>' +
-            '<td class="col-share">' +
-              '<div class="stats-share"><span style="width:' + Math.max(4, Math.round((count / emoMax) * 100)) + '%"></span></div>' +
-              '<span class="muted">' + Math.round((count / (reactionTotal || count || 1)) * 100) + '%</span>' +
-            '</td>';
-          emoBody.appendChild(tr);
-        });
-        emoTable.appendChild(emoBody);
-        emotionBox.appendChild(emoTable);
-      }
-    }
+    renderDonutChart(el('stats-emotions'), emotions.map((item) => ({
+      label: String(item.emotion || '其他'),
+      count: Number(item.count) || 0
+    })));
 
-    const hotQuotes = Array.isArray(data.top_quotes) ? data.top_quotes : [];
-    const quoteBox = el('stats-hot-quotes');
-    if (quoteBox) {
-      quoteBox.innerHTML = '';
-      if (!hotQuotes.length) {
-        quoteBox.innerHTML = '<p class="muted hint">还没有被表情回应的语录。</p>';
-      } else {
-        const quoteTable = document.createElement('table');
-        quoteTable.className = 'stats-table';
-        quoteTable.innerHTML = '<thead><tr><th>语录内容</th><th class="col-count">获赞</th></tr></thead>';
-        const quoteBody = document.createElement('tbody');
-        hotQuotes.forEach((item) => {
-          const text = String(item.caption || item.filename || '未命名语录');
-          const tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td class="reaction-quote-cell" title="' + escapeHtml(String(item.filename || '')) + '">' +
-              escapeHtml(text.length > 32 ? text.slice(0, 32) + '…' : text) +
-            '</td>' +
-            '<td class="col-count"><b>' + (Number(item.count) || 0) + '</b></td>';
-          quoteBody.appendChild(tr);
-        });
-        quoteTable.appendChild(quoteBody);
-        quoteBox.appendChild(quoteTable);
-      }
-    }
+    renderQuoteBarChart(el('stats-hot-quotes'), Array.isArray(data.top_quotes) ? data.top_quotes : []);
+    renderQuoteBarChart(
+      el('stats-comment-quotes'),
+      Array.isArray(data.top_comment_quotes) ? data.top_comment_quotes : []
+    );
+    renderTrendChart(el('stats-reaction-trend'), buildReactionTrendSeries(data.trend));
 
     renderReactionPeople(el('stats-reaction-people'), data.top_persons || [], '获赞', '次');
     renderReactionPeople(el('stats-commenters'), data.top_commenters || [], '评论', '条');
