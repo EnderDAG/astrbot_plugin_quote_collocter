@@ -2362,12 +2362,14 @@ class Quote_Plugin(Star):
                 message_id = data.get("message_id")
         return str(message_id or "").strip()
 
-    async def _send_quote_image(self, event, group_id: str, path: str, name: str = ""):
-        """直接发送一张语录图片并回填 message_id 映射。
+    async def _send_quote_image(
+        self, event, group_id: str, path: str, name: str = ""
+    ) -> bool:
+        """直接发送一张语录图片并回填 message_id 映射，成功返回 True。
 
         AstrBot 的 ``event.send()`` 不返回 message_id，这里绕开响应管线直接调用
-        aiocqhttp 的 ``send_group_msg`` 拿到返回值；只要失败（内部 API 变化、
-        协议端不支持等）就回退到原来的 ``event.image_result``。
+        aiocqhttp 的 ``send_group_msg`` 拿到返回值；失败时返回 False，由调用方
+        回退到 ``yield event.image_result(...)``，保证同一张图只发送一次。
         """
         filename = str(name or Path(path).name)
         try:
@@ -2382,13 +2384,13 @@ class Quote_Plugin(Star):
                 message_id = self._sent_message_id(resp)
                 if message_id:
                     quote_reactions.record_sent(message_id, group_id, filename)
-                    return event.image_result(str(path))
+                    return True
                 logger.warning(
                     "[quote] 直发语录图片未取到 message_id，回退 image_result"
                 )
         except Exception as exc:
             logger.warning(f"[quote] 直发语录图片失败，回退 image_result：{exc}")
-        return event.image_result(str(path))
+        return False
 
     async def _send_recall_chain(
         self, event, group_id: str, components: list, names: list
@@ -4867,9 +4869,10 @@ class Quote_Plugin(Star):
             if pool:
                 picked = random.choice(pool)
                 remember_sent_quote(event, group_id, picked)
-                yield await self._send_quote_image(
+                if not await self._send_quote_image(
                     event, group_id, str(group_dir(group_id) / picked), picked
-                )
+                ):
+                    yield event.image_result(str(group_dir(group_id) / picked))
             else:
                 yield event.plain_result(
                     "⭐本群还没有可展示的群友语录哦~\n请发送「语录投稿+图片」进行添加！"
@@ -4908,9 +4911,10 @@ class Quote_Plugin(Star):
                     yield event.plain_result("⭐本群还没有标记为限制级的语录。")
                 else:
                     picked = random.choice(pool)
-                    yield await self._send_quote_image(
+                    if not await self._send_quote_image(
                         event, group_id, str(group_dir(group_id) / picked), picked
-                    )
+                    ):
+                        yield event.image_result(str(group_dir(group_id) / picked))
 
         elif (
             msg.startswith("/语录排行")
@@ -4990,9 +4994,10 @@ class Quote_Plugin(Star):
                 for name in names:
                     path = group_dir(group_id) / name
                     if path.is_file():
-                        yield await self._send_quote_image(
+                        if not await self._send_quote_image(
                             event, group_id, str(path), name
-                        )
+                        ):
+                            yield event.image_result(str(path))
 
         elif msg.startswith("/抽语录") or msg.startswith("抽语录"):
             digits = "".join(ch for ch in msg if ch.isdigit())
@@ -5011,9 +5016,10 @@ class Quote_Plugin(Star):
                     path = group_dir(group_id) / name
                     if path.is_file():
                         remember_sent_quote(event, group_id, name)
-                        yield await self._send_quote_image(
+                        if not await self._send_quote_image(
                             event, group_id, str(path), name
-                        )
+                        ):
+                            yield event.image_result(str(path))
 
         elif msg.startswith("/语录查") or msg.startswith("语录查"):
             keyword = re.sub(r"^/?语录查", "", msg).strip()
@@ -5038,9 +5044,10 @@ class Quote_Plugin(Star):
                         for name in names:
                             path = group_dir(group_id) / name
                             if path.is_file():
-                                yield await self._send_quote_image(
+                                if not await self._send_quote_image(
                                     event, group_id, str(path), name
-                                )
+                                ):
+                                    yield event.image_result(str(path))
 
         elif msg.startswith("/语录人物") or msg.startswith("语录人物"):
             keyword = re.sub(r"^/?语录人物", "", msg).strip()
@@ -5056,9 +5063,10 @@ class Quote_Plugin(Star):
                     for item in names:
                         path = group_dir(group_id) / item
                         if path.is_file():
-                            yield await self._send_quote_image(
+                            if not await self._send_quote_image(
                                 event, group_id, str(path), item
-                            )
+                            ):
+                                yield event.image_result(str(path))
 
         elif msg in ("/合集", "合集"):
             yield event.plain_result(await asyncio.to_thread(collection_text_list, group_id))
@@ -5076,9 +5084,10 @@ class Quote_Plugin(Star):
                     for item in names:
                         path = group_dir(group_id) / item
                         if path.is_file():
-                            yield await self._send_quote_image(
+                            if not await self._send_quote_image(
                                 event, group_id, str(path), item
-                            )
+                            ):
+                                yield event.image_result(str(path))
 
         elif msg in ("/周报", "周报", "/语录周报", "/周报 上周", "周报 上周"):
             offset = -1 if "上周" in msg else 0
@@ -5220,12 +5229,13 @@ class Quote_Plugin(Star):
                             remember_sent_quote(
                                 event, group_id, Path(selected_image_path).name
                             )
-                            yield await self._send_quote_image(
+                            if not await self._send_quote_image(
                                 event,
                                 group_id,
                                 selected_image_path,
                                 Path(selected_image_path).name,
-                            )
+                            ):
+                                yield event.image_result(selected_image_path)
                         else:
                             selected_text = random.choice(
                                 [
