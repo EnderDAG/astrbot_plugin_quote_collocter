@@ -48,7 +48,7 @@ location /quote-collab/ {
 - **发送记忆**（v2.2+）：机器人发过的语录会注入它自己的对话上下文，能接梗、引用、自嘲。
 - **AI 语义召回**（v2.4+，v2.12.3 起工具合并为 `quote`）：AI 可调用 `quote(action="recall")` 检索本群语录，并用 `&&image_xxx.jpg&&` 标记随回复发图；标记只认图片 id，无效标记会记录原文；可开启「没写标记时自动补发 top1」。
 - **人物档案**（v2.5+）：按 QQ 号记录昵称历史与头像历史（dHash 指纹），换昵称 / 换头像后仍能认出同一个人；支持以图找人、合并 / 拆分身份。
-- **人物关系星图**（v3.2.0+）：管理页「语录人物」中点开任一人物的「星图」，把俗名（别名）、群昵称变体与最常投稿的群友画成一张可拖拽 / 缩放的星图；悬停可看来源、群号、次数与置信度。
+- **人物关系星图**（v3.2.0+，v3.3.0 起完整名单）：管理页「语录人物」中点开任一人物的「星图」，把全部已确认俗名（manual / learned / merge，带置信度与来源群）与全部群昵称曾用名画成一张可拖拽 / 缩放的星图；右侧详情按「俗名 / 曾用名（出现 N 次）」分组滚动展示并可点击定位节点；悬停可看来源、群号、次数与置信度。v3.3.0 起不再显示投稿人弱关联节点。
 - **按「被拍的人」归档**（v2.6+）：视觉识别截图里的说话人，自动匹配群成员档案；可手动指定归属、批量回填、查看某人的全部语录。
 - **昵称别名表**（v2.7+）：截图里读错 / 形近的昵称直接映射到 QQ 号，不再污染群名片历史；「待确认归属」可一键归并形近变体。
 - **群昵称称呼**（v2.8+）：AI 提到语录人物时使用群昵称（群名片优先），不输出 QQ 号或数字 ID。
@@ -59,7 +59,7 @@ location /quote-collab/ {
 - **全文检索与组合筛选**（v2.13+）：管理页搜索走 SQLite FTS5 索引（中文二元组），可按人物、标签、时间范围叠加筛选。
 - **回收站**（v2.13+）：删除语录先进入回收站，可恢复或彻底删除；保留天数在群设置里调整，过期自动清理。
 - **自动打标签队列**（v2.13+）：后台用视觉模型为新语录补 `tags`，队列可暂停/恢复，群设置里可关闭自动打标签。
-- **俗名学习**（v2.15+）：从群聊里低频学习群友俗名/外号，生成「待确认俗名」候选；在「语录人物」页确认后写入别名表，之后归属识别与 AI 点名都能用这个称呼找到人。v3.0.5 起只记录最近消息里实际出现过的称呼（忽略 @ 提及与引用内容），候选列表会显示出现次数。已确认的俗名会成为 AI 称呼该群友的首选：AI 提到人物时优先用俗名，而不是原始群昵称（v3.0.6+）。
+- **俗名学习**（v2.15+）：从群聊里低频学习群友俗名/外号，生成「待确认俗名」候选；在「语录人物」页确认后写入别名表，之后归属识别与 AI 点名都能用这个称呼找到人。v3.0.5 起只记录最近消息里实际出现过的称呼（忽略 @ 提及与引用内容），候选列表会显示出现次数。已确认的俗名会成为 AI 称呼该群友的首选：AI 提到人物时优先用俗名，而不是原始群昵称（v3.0.6+）。v3.3.0 起只有「最近消息里字面出现 ≥ 2 次」且「置信度 ≥ 0.80」的候选才进入待确认列表，证据不足的不会入队。
 - **自动语义化**（v2.16+）：后台默认每 24 小时为尚未语义化的新语录补齐描述与向量，周期可在群设置调整（1–168 小时）或关闭。
 - **表情回应与引用评论**（v3.0.8+）：机器人发出的语录被表情回应时按情绪统计，被引用回复时记录评论人 / 内容 / 时间；周报、年度报告与管理页「语录统计」展示「获赞最多的语录 / 人物」与「评论最多的人」。
 - **称呼优先级与重填归属**（v2.16+）：展示与归属按「确认俗名 → 群名片 / QQ 当前昵称」取名；设置面板的「重填全部语录归属」可一次性刷新全部归属与语义 speaker。
@@ -145,7 +145,7 @@ location /quote-collab/ {
 - **群设置面板**：投稿权限、戳戳冷却、戳戳发图概率、`remember`、`recall`、`auto_recall`、清空本群语录。
 - **语义化工具条**：显示向量模型与维度、各状态数量、实时进度，可取消任务、清空本群索引。
 - **语录统计**（v2.9+）：总量、归属率、语义化覆盖率、占用空间、最近 30 天新增、各群概览、人物语录数量排名与投稿人排名；v3.1.0 起「表情回应 / 引用评论」栏内嵌纯 SVG 图表（情绪分布环形图、获赞 / 评论最多语录 Top 5 条形图、近 30 天回应 / 评论趋势折线）。
-- **语录人物**（v2.5+）：人物列表（显示 `pid` 与 QQ 数量）、详情（昵称历史、所在群、头像墙）、以图找人、合并 / 拆分、待确认归属、整理旧别名、自动同步设置。v3.2.0 起每个人物都能打开「关系星图」：中心是人物本身，外圈是该人物的俗名、群昵称变体与最常投稿的群友，悬停可看来源与次数，支持拖拽平移与滚轮缩放。
+- **语录人物**（v2.5+）：人物列表（显示 `pid` 与 QQ 数量）、详情（昵称历史、所在群、头像墙）、以图找人、合并 / 拆分、待确认归属、整理旧别名、自动同步设置。v3.2.0 起每个人物都能打开「关系星图」：中心是人物本身，外圈是该人物的全部俗名与全部群昵称曾用名，右侧滚动面板按「俗名 / 曾用名」分组列出并可点击定位；人物卡片与详情也有可展开的名单。v3.3.0 起星图不再包含投稿人弱关联，候选确认门槛为出现 ≥ 2 次且置信度 ≥ 0.80。
 - **更新推送设置**：配置目标群与 DSH 桥接 token（默认关闭、没有内置群号）、查看最近推送结果、保存配置或发送测试推送。
 - **发送记忆**：查看 / 清空机器人发过的语录记忆。
 
@@ -257,7 +257,7 @@ data/plugin_data/quote_collocter/
 - **备份**：停插件后打包 `quote.db`（连同 `-wal`/`-shm`）+ `quotes_data/` 图片目录即可；也可用 `GET database` 查看状态。
 - 图片与头像仍然是磁盘文件，数据库只存路径/哈希等元数据。
 
-## Web API（63 条）
+## Web API（65 条）
 
 全部注册在 `/quote_collocter/*`，走 AstrBot 插件鉴权。
 
@@ -268,7 +268,7 @@ data/plugin_data/quote_collocter/
 | 归属 | `quotes/subject`、`quotes/auto_subject`、`quotes/review`、`quotes/bind_name` |
 | 语义化 | `semantic/status`、`semantic/run`、`semantic/progress`、`semantic/reset`、`semantic/backfill_speaker` |
 | 发送记忆 | `sent` |
-| 人物档案 | `identity/overview`、`identity/list`、`identity/detail`、`identity/avatars`、`identity/match`、`identity/sync`、`identity/merge`、`identity/split`、`identity/reset`、`identity/schedule`、`identity/match_names`、`identity/clusters`、`identity/cluster_merge`、`identity/cleanup`、`identity/aliases`、`identity/alias_delete` |
+| 人物档案 | `identity/overview`、`identity/list`、`identity/detail`、`identity/avatars`、`identity/match`、`identity/sync`、`identity/merge`、`identity/split`、`identity/reset`、`identity/schedule`、`identity/match_names`、`identity/clusters`、`identity/cluster_merge`、`identity/cleanup`、`identity/star_map`、`identity/star_index`、`identity/aliases`、`identity/alias_delete` |
 | 更新推送 | `announce` |
 | 检索 / 回收站 / 自动标签 | `quotes/search`、`trash`、`trash/restore`、`trash/purge`、`tag/queue` |
 | 排行 / 命令 | `quotes/ranking`、`quotes/subject`、`quotes/auto_subject`、`quotes/review` |
@@ -331,6 +331,16 @@ data/plugin_data/quote_collocter/
 
 ---
 
+## 更新约定 / Release policy
+
+本插件与 DSH 版（[dsh-quote-archive](https://github.com/EnderDAG/dsh-quote-archive)）保持双端同步：
+
+- 任何功能变更都在 AstrBot 版与 DSH 版同时实现，并各自递增版本、各自发版（AstrBot 走 `metadata.yaml` 版本与市场更新，DSH 走 GitHub Release + npm）。
+- 两端的星图 / 人物面板等页面代码保持一致（同一套原生 JS + Canvas，DSH 版仅多一个适配宿主 API 的 `bridge.js`）。
+- 两端的行为门槛保持一致，例如俗名候选需出现 ≥ 2 次且置信度 ≥ 0.80。
+
+---
+
 ## 开发与维护
 
 - 编译检查：
@@ -371,6 +381,8 @@ data/plugin_data/quote_collocter/
 
 | 版本 | 主要内容 |
 | --- | --- |
+| v3.3.0 | 星图去掉投稿人弱关联；完整列出俗名与曾用名（星图侧栏 / 人物面板）；俗名候选门槛提高到出现 ≥ 2 次且置信度 ≥ 0.80 |
+| v3.2.0 | 人物关系星图（每人独立组网 + Canvas 可视化，`identity/star_map` / `identity/star_index`） |
 | v3.0.x | 表情回应 / 引用评论采集与统计（v3.0.8）；维护权限收紧（v3.0.7）；俗名学习与称呼优先级（v3.0.5–3.0.6） |
 | v2.10.x | 人物档案改用稳定 `pid` 编号；工程重构：`main.py` 拆分为 9 个模块（v2.10.1） |
 | v2.9.x | 语录统计与排行、群头衔过滤、按 QQ/别名点名召回、身份自动同步、更新推送与上下文注入、`quote_stats` 工具 |

@@ -2017,11 +2017,9 @@ class IdentityStore:
 # ------------------------------------------------------------------ #
 STAR_ALIAS_SOURCE_RANK = {"manual": 0, "learned": 1, "merge": 2}
 STAR_ALIAS_CONFIDENCE = {"manual": 1.0, "merge": 0.95, "learned": 0.8}
-STAR_DEFAULT_NODES = 120
-STAR_MAX_NODES = 400
-STAR_WEAK_CAP = 8
+STAR_DEFAULT_NODES = 240
+STAR_MAX_NODES = 500
 STAR_LABEL_LIMIT = 32
-STAR_WEAK_WEIGHT = 0.25
 STAR_INDEX_DEFAULT = 200
 STAR_INDEX_MAX = 500
 
@@ -2166,7 +2164,7 @@ def star_map(
     group_id: str = "",
     max_nodes: int = STAR_DEFAULT_NODES,
 ) -> dict:
-    """人物关系星图：中心人物 + 俗名 / 群昵称 / 投稿人外圈节点。"""
+    """人物关系星图：中心人物 + 俗名 / 群昵称外圈节点（v3.3.0 起不再显示投稿人）。"""
     pid_ref = str(person_id or "").strip()
     uid_ref = str(user_id or "").strip()
     gid = str(group_id or "").strip()
@@ -2198,12 +2196,11 @@ def star_map(
             "count": 0,
             "confidence": 1.0,
             "source": snapshot["preferred_source"],
-            "weak": False,
         }
     ]
     edges: list = []
 
-    def add_spoke(node_id, label, kind, count, weight, source, node_group="", weak=False):
+    def add_spoke(node_id, label, kind, count, weight, source, node_group=""):
         nodes.append(
             {
                 "id": node_id,
@@ -2213,7 +2210,6 @@ def star_map(
                 "count": int(count),
                 "confidence": round(float(weight), 4),
                 "source": source,
-                "weak": bool(weak),
             }
         )
         edges.append(
@@ -2225,7 +2221,6 @@ def star_map(
             }
         )
 
-    alias_total = 0
     for row in snapshot["alias_rows"]:
         if row["key"] in used_keys:
             continue
@@ -2239,10 +2234,8 @@ def star_map(
             row["source"],
             row["group_id"],
         )
-        alias_total += 1
 
     subjects: dict = {}
-    submitters: dict = {}
     total_quotes = 0
     last_ts = 0.0
     for item_gid, _name, info in _star_iter_items(gid):
@@ -2266,14 +2259,6 @@ def star_map(
             row["count"] += 1
             row["groups"].add(item_gid)
             row["last_ts"] = max(row["last_ts"], ts)
-        uploader = str(info.get("nickname") or "").strip()
-        uploader_key = _star_key(uploader)
-        if uploader_key:
-            row = submitters.setdefault(
-                uploader_key, {"name": uploader, "count": 0, "last_ts": 0.0}
-            )
-            row["count"] += 1
-            row["last_ts"] = max(row["last_ts"], ts)
 
     nodes[0]["count"] = total_quotes
     if gid:
@@ -2287,7 +2272,7 @@ def star_map(
         if key not in used_keys
     ]
     max_count = max((row["count"] for row in nickname_rows), default=0)
-    nickname_total = 0
+    nickname_nodes = 0
     for row in nickname_rows[: max(0, min(len(nickname_rows), cap))]:
         key = _star_key(row["name"])
         used_keys.add(key)
@@ -2303,32 +2288,7 @@ def star_map(
             "subject",
             node_group,
         )
-        nickname_total += 1
-
-    weak_rows = [
-        row
-        for key, row in sorted(
-            submitters.items(), key=lambda pair: (-pair[1]["count"], pair[0])
-        )
-        if key not in used_keys
-    ]
-    weak_total = 0
-    for row in weak_rows[:STAR_WEAK_CAP]:
-        key = _star_key(row["name"])
-        if key in used_keys:
-            continue
-        used_keys.add(key)
-        add_spoke(
-            f"nickname:submitter:{key}",
-            row["name"],
-            "nickname",
-            row["count"],
-            STAR_WEAK_WEIGHT,
-            "submitter",
-            "",
-            True,
-        )
-        weak_total += 1
+        nickname_nodes += 1
 
     return {
         "ok": True,
@@ -2339,13 +2299,30 @@ def star_map(
             "avatar_sha": snapshot["avatar_sha"],
             "groups": sorted(groups),
             "total": total_quotes,
+            "aliases": [
+                {
+                    "name": row["name"],
+                    "source": row["source"],
+                    "confidence": round(float(row["confidence"]), 4),
+                    "group_id": row["group_id"],
+                }
+                for row in snapshot["alias_rows"]
+            ],
+            "names": [
+                {
+                    "name": row["name"],
+                    "count": int(row["count"]),
+                    "group_id": sorted(row["groups"])[0] if row["groups"] else "",
+                    "groups": sorted(row["groups"]),
+                }
+                for row in nickname_rows
+            ],
         },
         "nodes": nodes,
         "edges": edges,
         "stats": {
-            "aliases": alias_total,
-            "nicknames": nickname_total,
-            "weak": weak_total,
+            "aliases": len(snapshot["alias_rows"]),
+            "nicknames": len(nickname_rows),
             "groups": len(groups),
             "quotes": total_quotes,
             "last_updated": max(last_ts, snapshot["updated_at"]),

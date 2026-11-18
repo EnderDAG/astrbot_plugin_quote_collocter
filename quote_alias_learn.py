@@ -35,8 +35,10 @@ ALIAS_MIN_LEN = 2
 
 ALIAS_MAX_LEN = 16
 
-# v3.0.5：俗名必须在最近消息里至少字面出现过这么多次才写入候选（1 = 过滤模型臆造，可调大更严格）
-MIN_OCCURRENCES = 1
+# v3.3.0：俗名必须在最近消息里至少字面出现 2 次，且模型置信度 >= 0.8 才写入候选
+MIN_OCCURRENCES = 2
+
+MIN_CONFIDENCE = 0.8
 
 SKIP_PREFIXES = (
     "/",
@@ -67,7 +69,8 @@ SYSTEM_PROMPT = (
     "3. 不要输出普通词语、语气词、群名、头衔、等级、表情、口头禅。\n"
     "4. 称呼本身尽量短（2-16 个字），不要带标点。\n"
     "5. target 填该称呼指的人：优先原样抄群里出现的昵称；如果能看出 QQ 号也可以直接写号码。\n"
-    "6. 不确定就不要输出。宁缺毋滥。\n"
+    "   不确定就不要输出。宁缺毋滥。\n"
+    "7. confidence 只填 0.8 及以上；没有把握的称呼直接不要输出。\n"
     "只输出 JSON，不要解释："
     '{"aliases":[{"alias":"俗名","target":"它指的人","confidence":0.8,"evidence":"原句片段"}]}'
     "\n没有符合条件的就输出 {\"aliases\":[]}。最多 6 条。"
@@ -355,6 +358,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
     added = 0
     kept = []
     dropped_occurrence = 0
+    dropped_confidence = 0
     dropped_name = 0
     for item in items:
         resolved = _resolve_target(item.get("target"), gid)
@@ -368,6 +372,13 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
         if occurrences < MIN_OCCURRENCES:
             dropped_occurrence += 1
             continue
+        try:
+            confidence = float(item.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence < MIN_CONFIDENCE:
+            dropped_confidence += 1
+            continue
         if _same_as_display_name(alias_text, resolved.get("display_name") or ""):
             dropped_name += 1
             continue
@@ -377,7 +388,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
                 user_id,
                 gid,
                 evidence=item.get("evidence") or "",
-                confidence=item.get("confidence") or 0.5,
+                confidence=confidence,
                 occurrences=occurrences,
             )
         except Exception as exc:
@@ -390,7 +401,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
                     "id": cid,
                     "alias": item.get("alias"),
                     "target": resolved.get("display_name") or item.get("target"),
-                    "confidence": item.get("confidence"),
+                    "confidence": confidence,
                     "occurrences": occurrences,
                 }
             )
@@ -400,6 +411,7 @@ async def learn(context, group_id: str, *, every: int = DEFAULT_EVERY, force: bo
         "parsed": len(items),
         "used": len(picked),
         "dropped_occurrence": dropped_occurrence,
+        "dropped_confidence": dropped_confidence,
         "dropped_name": dropped_name,
         "items": kept,
     }

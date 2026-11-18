@@ -1409,14 +1409,22 @@ def _alias_candidate_dict(row) -> dict:
     }
 
 
+# v3.3.0：俗名候选进入人工确认队列的最低门槛（出现次数与置信度）
+ALIAS_CANDIDATE_MIN_OCCURRENCES = 2
+ALIAS_CANDIDATE_MIN_CONFIDENCE = 0.8
+
+
 def load_alias_candidates(group_id: str = "", status: str = "pending", limit: int = 200) -> list:
     """读取俗名候选：按群与状态过滤，按置信度、时间排序。"""
     conn = _connect()
     gid = str(group_id or "").strip()
     state = str(status or "pending").strip() or "pending"
     size = max(1, min(500, int(limit or 200)))
-    sql = "SELECT * FROM alias_candidate WHERE status = ?"
-    args = [state]
+    sql = (
+        "SELECT * FROM alias_candidate WHERE status = ? "
+        "AND occurrences >= ? AND confidence >= ?"
+    )
+    args = [state, ALIAS_CANDIDATE_MIN_OCCURRENCES, ALIAS_CANDIDATE_MIN_CONFIDENCE]
     if gid:
         sql += " AND group_id = ?"
         args.append(gid)
@@ -1431,8 +1439,11 @@ def count_alias_candidates(group_id: str = "", status: str = "pending") -> int:
     conn = _connect()
     gid = str(group_id or "").strip()
     state = str(status or "pending").strip() or "pending"
-    sql = "SELECT COUNT(*) AS total FROM alias_candidate WHERE status = ?"
-    args = [state]
+    sql = (
+        "SELECT COUNT(*) AS total FROM alias_candidate WHERE status = ? "
+        "AND occurrences >= ? AND confidence >= ?"
+    )
+    args = [state, ALIAS_CANDIDATE_MIN_OCCURRENCES, ALIAS_CANDIDATE_MIN_CONFIDENCE]
     if gid:
         sql += " AND group_id = ?"
         args.append(gid)
@@ -1477,6 +1488,9 @@ def add_alias_candidate(
         return 0
     value = max(0.0, min(1.0, float(confidence or 0.0)))
     occ = max(0, int(occurrences or 0))
+    # v3.3.0：证据不足的候选不入队（历史低门槛数据保留在库，由查询侧过滤）
+    if occ < ALIAS_CANDIDATE_MIN_OCCURRENCES or value < ALIAS_CANDIDATE_MIN_CONFIDENCE:
+        return 0
     with _lock:
         row = conn.execute(
             "SELECT id, confidence, occurrences FROM alias_candidate "
