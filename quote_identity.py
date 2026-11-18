@@ -222,14 +222,23 @@ async def fetch_avatar_bytes(user_id: str):
     return data
 
 def identity_latest_name(user: dict) -> str:
-    """取该用户最合适的称呼：优先群名片（card），其次最近使用的昵称。"""
+    """取该用户当前最可能的称呼：最近出现过的名字（同一时间戳时群名片优先，纯 QQ 号不优先）。"""
     names = [item for item in (user.get("names") or []) if item.get("name")]
     if not names:
         return ""
-    cards = [item for item in names if item.get("card")]
-    pool = cards or names
-    pool = sorted(pool, key=lambda item: item.get("last_seen") or 0)
-    return str(pool[-1]["name"])
+    pool = sorted(
+        names,
+        key=lambda item: (
+            float(item.get("last_seen") or 0.0),
+            1 if item.get("card") else 0,
+            int(item.get("count") or 0),
+        ),
+    )
+    for item in reversed(pool):
+        name = str(item.get("name") or "").strip()
+        if name and not name.isdigit():
+            return name
+    return str(pool[-1].get("name") or "").strip()
 
 def _clean_ai_name(value: str) -> str:
     """过滤掉不适合给大模型看的名字（纯数字 / QQ 号样式）。"""

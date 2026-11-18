@@ -255,7 +255,7 @@ def recall_candidates_sync(
     return scored[: max(1, int(top_k))]
 
 def recall_person_quotes_sync(
-    group_id: str, user_ids, *, limit: int = RECALL_TOP_K
+    group_id: str, user_ids, *, limit: int = RECALL_PERSON_LIMIT
 ) -> list:
     """按已确认的人物归属直接列出某人的语录（不依赖语义相似度）。"""
     gid = str(group_id or "")
@@ -327,6 +327,21 @@ def recall_person_quotes_sync(
     )
     return rows[: max(1, int(limit))]
 
+def count_person_quotes_sync(group_id: str, user_ids) -> int:
+    """统计某人物在本群可召回的语录总数（过滤规则与 recall_person_quotes_sync 一致）。"""
+    return len(recall_person_quotes_sync(group_id, user_ids, limit=1000))
+
+
+def query_targets_speaker(text: str) -> bool:
+    """判断检索词是否在指当前发言人自己（「我 / 我的 / 本人」等自指）。"""
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    if any(token in raw for token in ("我的", "我自己", "我本人", "本人", "俺", "老子")):
+        return True
+    return raw in ("我", "俺", "自己", "本人")
+
+
 def _resolve_recall_name(raw: str, allowed, group_id: str) -> str:
     """把标记里的图片名规范成可发送的语录文件名。
 
@@ -352,7 +367,7 @@ def _resolve_recall_name(raw: str, allowed, group_id: str) -> str:
     return safe
 
 def slim_candidate(row: dict) -> dict:
-    """把召回候选压成给模型看的最小字段集（去掉长文本、pid、语气与相似度分）。"""
+    """把召回候选压成给模型看的最小字段集（去掉长文本、语气与相似度分）。"""
     out: dict = {
         "id": str(row.get("id") or ""),
         "who": str(row.get("who") or "群友")[:16],
@@ -363,6 +378,9 @@ def slim_candidate(row: dict) -> dict:
         out["tags"] = tags
     if str(row.get("via") or "") == "person":
         out["via"] = "person"
+        pid = str(row.get("pid") or "")
+        if pid:
+            out["pid"] = pid
     sent = str(row.get("sent_ago") or "")
     if sent:
         out["sent_ago"] = sent

@@ -133,7 +133,7 @@ from quote_core import *  # noqa: F401,F403
 
 PLUGIN_NAME = "quote_collocter"
 
-PLUGIN_VERSION = "3.3.0"
+PLUGIN_VERSION = "3.3.1"
 
 # v3.0.1 起插件自身数据（含语录图片、缩略图）统一放在 plugin_data/quote_collocter/ 下
 PLUGIN_DATA_DIR = Path("data") / "plugin_data" / PLUGIN_NAME
@@ -212,6 +212,9 @@ SENT_REMIND_HEAD = (
 RECALL_TOOL_NAME = "quote"
 
 RECALL_TOP_K = 3
+
+# 点名某人时一次最多给模型多少人语录（人物召回上限，避免被 RECALL_TOP_K 截断）
+RECALL_PERSON_LIMIT = 8
 
 RECALL_RECENT_LIMIT = 5
 

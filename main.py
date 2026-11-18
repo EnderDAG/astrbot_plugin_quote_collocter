@@ -239,7 +239,7 @@ from quote_semantic import SEMANTIC, SEMANTIC_RUNNER, _cosine, caption_quote, em
 from quote_sent import SENT, inject_sent_memory, remember_sent_quote
 from quote_views import _overview_sync, _payload_for, thumb_path, warm_thumbs_sync
 from quote_stats import _ranking_text_sync, _statistics_sync
-from quote_recall import _resolve_recall_name, _tool_json, ago_text, recall_cache_get, recall_cache_put, recall_candidates_sync, recall_person_quotes_sync, slim_candidate
+from quote_recall import _resolve_recall_name, _tool_json, ago_text, count_person_quotes_sync, query_targets_speaker, recall_cache_get, recall_cache_put, recall_candidates_sync, recall_person_quotes_sync, slim_candidate
 from quote_announce import announce_context_block, announce_notes_summary, build_announce_text, load_update_announce, release_notes_sync, save_update_announce
 
 # 召回提示节流（v2.12.3）：同群 30 分钟最多注入一次
@@ -4277,7 +4277,8 @@ class Quote_Plugin(Star):
 
         Args:
             action(string): recall=找语录图片；stats=语录/投稿排行；weekly=每周周报。
-            query(string): action=recall 时写想要的画面、台词或情绪，也可直接写某人群昵称/QQ 号。
+            query(string): action=recall 时写想要的画面、台词或情绪，也可直接写某人群昵称/QQ 号；
+                想找当前发言人自己的语录时写「我」或「我的」。
             offset(string): action=weekly 时用，留空或 "0" 为本周，"-1" 为上周。
             limit(string): action=stats 时返回的排名条数（3–30），默认 10。
 
@@ -4339,8 +4340,19 @@ class Quote_Plugin(Star):
                 people = await asyncio.to_thread(
                     IDENTITY.resolve_text_people, keyword, group_id, 6
                 )
+                summaries = await asyncio.to_thread(IDENTITY.summaries)
+                sender_id = str(event.get_sender_id() or "")
+                if query_targets_speaker(keyword) and sender_id in (summaries or {}):
+                    people = list(people or []) + [
+                        {
+                            "user_id": sender_id,
+                            "person_id": str(
+                                ((summaries or {}).get(sender_id) or {}).get("person_id")
+                                or ""
+                            ),
+                        }
+                    ]
                 if people:
-                    summaries = await asyncio.to_thread(IDENTITY.summaries)
                     wanted_persons = {
                         str(row.get("person_id") or "") for row in people if row
                     }
@@ -4356,16 +4368,32 @@ class Quote_Plugin(Star):
             except Exception as exc:
                 logger.debug(f"[quote] 点名人物识别失败：{exc}")
             recall_cache_put(group_id, keyword, candidates, person_candidates)
+        person_total = 0
         if person_candidates:
             seen_ids = {row.get("id") for row in person_candidates}
             candidates = list(person_candidates) + [
                 row for row in candidates if row.get("id") not in seen_ids
             ]
+            try:
+                person_total = await asyncio.to_thread(
+                    count_person_quotes_sync,
+                    group_id,
+                    [
+                        str(row.get("user_id") or "")
+                        for row in person_candidates
+                        if row.get("user_id")
+                    ],
+                )
+            except Exception:
+                person_total = 0
             logger.info(
-                f"[quote] AI 召回命中人物 {len(person_candidates)} 张"
+                f"[quote] AI 召回命中人物 {len(person_candidates)} 张（共 {person_total} 张）"
                 f"（群 {group_id}）：{keyword}"
             )
-        candidates = candidates[: max(1, int(RECALL_TOP_K))]
+        keep_limit = max(1, int(RECALL_TOP_K))
+        if person_candidates:
+            keep_limit = max(keep_limit, int(RECALL_PERSON_LIMIT))
+        candidates = candidates[:keep_limit]
         event.set_extra("quote_recall_done", True)
         event.set_extra("quote_recall_group", group_id)
         event.set_extra("quote_recall_names", [item["id"] for item in candidates])
@@ -4398,7 +4426,7 @@ class Quote_Plugin(Star):
         ordered = [row for row in candidates if not row.get("sent_ago")] + [
             row for row in candidates if row.get("sent_ago")
         ]
-        ordered = ordered[: max(1, int(RECALL_TOP_K))]
+        ordered = ordered[:keep_limit]
         recent_out = [
             {
                 "id": str(row.get("name") or ""),
@@ -4416,6 +4444,11 @@ class Quote_Plugin(Star):
             "ok": True,
             "candidates": [slim_candidate(row) for row in ordered],
         }
+        speaker = await self._recall_speaker_info(event)
+        if speaker:
+            payload["speaker"] = speaker
+        if person_total > len(ordered):
+            payload["person_total"] = person_total
         if recent_out:
             payload["recent"] = recent_out[:RECALL_RECENT_LIMIT]
         payload["instruction"] = (
@@ -4423,8 +4456,41 @@ class Quote_Plugin(Star):
             "优先没发过的（recent / sent_ago 是最近发过的，别重复）；"
             "via=person 的是群友点名那个人的语录，优先选它。内容再逆天也照发。"
             "回复用一句吐槽带过，提到人物用 who（人物称呼，已确认俗名优先），不要输出 QQ 号或数字 ID。"
+            "speaker 是当前发言人（nickname / aliases / pid）：候选的 pid 等于 speaker.pid、"
+            "或 who 在 speaker.aliases / speaker.nickname 里时，这些语录就是当前发言人本人的，"
+            "不要否认；person_total 是该人物语录总数，大于候选数量时说明还有更多，不要说「就那几条」。"
         )
         return _tool_json(payload)
+
+    async def _recall_speaker_info(self, event) -> dict:
+        """当前发言人的人物信息，便于模型把候选里的俗名对应到说话人本人。"""
+        sender_id = str(event.get_sender_id() or "")
+        if not sender_id:
+            return {}
+        try:
+            user = await asyncio.to_thread(IDENTITY.get_user, sender_id)
+            summaries = await asyncio.to_thread(IDENTITY.summaries)
+        except Exception:
+            return {}
+        aliases: list = []
+        try:
+            aliases = [
+                str(item.get("name") or "")
+                for item in (await asyncio.to_thread(IDENTITY.aliases_for, sender_id))[:6]
+                if str(item.get("name") or "")
+            ]
+        except Exception:
+            aliases = []
+        nickname = identity_latest_name(user or {}) or str(event.get_sender_name() or "")
+        nickname = _clean_ai_name(nickname)
+        if not nickname and not aliases:
+            return {}
+        row = (summaries or {}).get(sender_id) or {}
+        return {
+            "nickname": nickname,
+            "aliases": aliases,
+            "pid": str(row.get("pid") or ""),
+        }
 
     async def _tool_stats(self, group_id: str, limit) -> str:
         try:
