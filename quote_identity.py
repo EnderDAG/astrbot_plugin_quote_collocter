@@ -2008,6 +2008,457 @@ class IdentityStore:
         except Exception:
             return False
 
+
+# ------------------------------------------------------------------ #
+# 人物关系星图（v3.2.0）
+#   * 以一个人物为中心，把他 / 她的俗名（别名表）、群昵称变体、
+#     以及最常投稿的群友画成一张星图；所有边只连中心，不跨人物。
+#   * 字段与 DSH 版 dsh-quote-archive/lib/star.js 对齐，页面可复用同一套 UI。
+# ------------------------------------------------------------------ #
+STAR_ALIAS_SOURCE_RANK = {"manual": 0, "learned": 1, "merge": 2}
+STAR_ALIAS_CONFIDENCE = {"manual": 1.0, "merge": 0.95, "learned": 0.8}
+STAR_DEFAULT_NODES = 120
+STAR_MAX_NODES = 400
+STAR_WEAK_CAP = 8
+STAR_LABEL_LIMIT = 32
+STAR_WEAK_WEIGHT = 0.25
+STAR_INDEX_DEFAULT = 200
+STAR_INDEX_MAX = 500
+
+
+def _star_clip(value, limit: int = STAR_LABEL_LIMIT) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)] + "…"
+
+
+def _star_key(value) -> str:
+    return IdentityStore.name_key(value)
+
+
+def _star_iter_items(group_id: str = ""):
+    """遍历语录元数据，产出 (群号, 文件名, info)。"""
+    groups = [group_id] if group_id else group_ids()
+    for gid in groups:
+        try:
+            items = META.load(gid).get("items") or {}
+        except Exception as exc:  # pragma: no cover - 读盘异常时跳过该群
+            logger.warning(f"[quote] 星图读取群 {gid} 语录失败：{exc}")
+            continue
+        for name, info in items.items():
+            if isinstance(info, dict):
+                yield gid, name, info
+
+
+def _star_alias_rows(state: dict, uids, group_id: str = "") -> list:
+    """该人物的已确认别名（manual / learned / merge），按来源优先级排序。"""
+    aliases = state.get("aliases") or {}
+    wanted = set(uids)
+    rows: list = []
+    seen: set = set()
+    for entry in aliases.values():
+        if not isinstance(entry, dict):
+            continue
+        uid = str(entry.get("user_id") or "").strip()
+        if uid not in wanted:
+            continue
+        if not entry.get("confirmed", True):
+            continue
+        source = str(entry.get("source") or "").strip()
+        if source not in STAR_ALIAS_SOURCE_RANK:
+            continue
+        name = str(entry.get("name") or "").strip()
+        key = _star_key(name)
+        if not key or key in seen:
+            continue
+        egid = str(entry.get("group_id") or "").strip()
+        if group_id and egid and egid != group_id:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "key": key,
+                "name": name,
+                "user_id": uid,
+                "group_id": egid,
+                "source": source,
+                "confidence": float(STAR_ALIAS_CONFIDENCE.get(source, 0.8)),
+                "count": int(entry.get("count") or 1),
+                "last_seen": float(
+                    entry.get("last_seen") or entry.get("created_at") or 0.0
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            STAR_ALIAS_SOURCE_RANK.get(row["source"], 9),
+            -row["last_seen"],
+            row["name"],
+        )
+    )
+    return rows
+
+
+def _star_person_snapshot(state: dict, person_id: str = "", user_id: str = "", group_id: str = ""):
+    """在档案里定位人物，返回构图所需的基础信息；找不到时返回 None。"""
+    users = state.get("users") or {}
+    persons = state.get("persons") or {}
+    person = None
+    key = ""
+    uid_ref = str(user_id or "").strip()
+    if uid_ref and isinstance(users.get(uid_ref), dict):
+        key = str((users.get(uid_ref) or {}).get("person_id") or "")
+        if key:
+            person = persons.get(key)
+    if not isinstance(person, dict):
+        found, found_key = IDENTITY._find_person_locked(state, person_id or uid_ref)
+        if isinstance(found, dict):
+            person, key = found, found_key
+    if not isinstance(person, dict):
+        return None
+    uids = [uid for uid in (person.get("user_ids") or []) if isinstance(users.get(uid), dict)]
+    if not uids:
+        return None
+    primary = max(
+        uids,
+        key=lambda item: float((users.get(item) or {}).get("last_seen") or 0.0),
+    )
+    display = IDENTITY._preferred_name_locked(state, primary, group_id)
+    if not display:
+        display = identity_latest_name(users.get(primary) or {})
+    if not display:
+        display = primary
+    avatar_sha = ""
+    for uid in uids:
+        current = str((users.get(uid) or {}).get("current_avatar") or "")
+        if current:
+            avatar_sha = current
+            break
+    groups = set()
+    for uid in uids:
+        groups.update(((users.get(uid) or {}).get("groups") or {}).keys())
+    if group_id:
+        groups = {group_id}
+    alias_rows = _star_alias_rows(state, uids, group_id)
+    preferred_source = "name"
+    display_key = _star_key(display)
+    for row in alias_rows:
+        if row["key"] == display_key:
+            preferred_source = row["source"]
+            break
+    return {
+        "person_id": key,
+        "user_ids": uids,
+        "primary_user_id": primary,
+        "display_name": display,
+        "avatar_sha": avatar_sha,
+        "groups": sorted(groups),
+        "alias_rows": alias_rows,
+        "preferred_source": preferred_source,
+        "updated_at": float(state.get("updated_at") or 0.0),
+    }
+
+
+def star_map(
+    person_id: str = "",
+    user_id: str = "",
+    group_id: str = "",
+    max_nodes: int = STAR_DEFAULT_NODES,
+) -> dict:
+    """人物关系星图：中心人物 + 俗名 / 群昵称 / 投稿人外圈节点。"""
+    pid_ref = str(person_id or "").strip()
+    uid_ref = str(user_id or "").strip()
+    gid = str(group_id or "").strip()
+    if not pid_ref and not uid_ref:
+        return {"ok": False, "error": "person_id or user_id required"}
+    try:
+        cap = max(1, min(STAR_MAX_NODES, int(max_nodes or STAR_DEFAULT_NODES)))
+    except (TypeError, ValueError):
+        cap = STAR_DEFAULT_NODES
+    with IDENTITY._lock:
+        state = IDENTITY._load_locked()
+        snapshot = _star_person_snapshot(state, pid_ref, uid_ref, gid)
+    if snapshot is None:
+        return {"ok": False, "error": "person not found"}
+
+    uids = set(snapshot["user_ids"])
+    centre_id = f"person:{snapshot['person_id']}"
+    display = snapshot["display_name"]
+    display_key = _star_key(display)
+    used_keys = {display_key} if display_key else set()
+    groups = set(snapshot["groups"])
+
+    nodes = [
+        {
+            "id": centre_id,
+            "label": _star_clip(display),
+            "kind": "person",
+            "group_id": gid,
+            "count": 0,
+            "confidence": 1.0,
+            "source": snapshot["preferred_source"],
+            "weak": False,
+        }
+    ]
+    edges: list = []
+
+    def add_spoke(node_id, label, kind, count, weight, source, node_group="", weak=False):
+        nodes.append(
+            {
+                "id": node_id,
+                "label": _star_clip(label),
+                "kind": kind,
+                "group_id": node_group,
+                "count": int(count),
+                "confidence": round(float(weight), 4),
+                "source": source,
+                "weak": bool(weak),
+            }
+        )
+        edges.append(
+            {
+                "from": node_id,
+                "to": centre_id,
+                "weight": round(max(0.15, min(1.0, float(weight))), 4),
+                "kind": kind,
+            }
+        )
+
+    alias_total = 0
+    for row in snapshot["alias_rows"]:
+        if row["key"] in used_keys:
+            continue
+        used_keys.add(row["key"])
+        add_spoke(
+            f"alias:{row['key']}",
+            row["name"],
+            "alias",
+            row["count"],
+            row["confidence"],
+            row["source"],
+            row["group_id"],
+        )
+        alias_total += 1
+
+    subjects: dict = {}
+    submitters: dict = {}
+    total_quotes = 0
+    last_ts = 0.0
+    for item_gid, _name, info in _star_iter_items(gid):
+        subject_uid = str(info.get("subject_user_id") or "").strip()
+        if subject_uid not in uids:
+            continue
+        total_quotes += 1
+        groups.add(item_gid)
+        try:
+            ts = float(info.get("ts") or 0.0)
+        except (TypeError, ValueError):
+            ts = 0.0
+        last_ts = max(last_ts, ts)
+        subject_name = str(info.get("subject_name") or "").strip()
+        subject_key = _star_key(subject_name)
+        if subject_key:
+            row = subjects.setdefault(
+                subject_key,
+                {"name": subject_name, "count": 0, "groups": set(), "last_ts": 0.0},
+            )
+            row["count"] += 1
+            row["groups"].add(item_gid)
+            row["last_ts"] = max(row["last_ts"], ts)
+        uploader = str(info.get("nickname") or "").strip()
+        uploader_key = _star_key(uploader)
+        if uploader_key:
+            row = submitters.setdefault(
+                uploader_key, {"name": uploader, "count": 0, "last_ts": 0.0}
+            )
+            row["count"] += 1
+            row["last_ts"] = max(row["last_ts"], ts)
+
+    nodes[0]["count"] = total_quotes
+    if gid:
+        nodes[0]["group_id"] = gid
+
+    nickname_rows = [
+        row
+        for key, row in sorted(
+            subjects.items(), key=lambda pair: (-pair[1]["count"], pair[0])
+        )
+        if key not in used_keys
+    ]
+    max_count = max((row["count"] for row in nickname_rows), default=0)
+    nickname_total = 0
+    for row in nickname_rows[: max(0, min(len(nickname_rows), cap))]:
+        key = _star_key(row["name"])
+        used_keys.add(key)
+        denominator = math.log1p(max_count) if max_count else 1.0
+        weight = 0.35 + 0.6 * (math.log1p(row["count"]) / denominator)
+        node_group = sorted(row["groups"])[0] if row["groups"] else ""
+        add_spoke(
+            f"nickname:{key}",
+            row["name"],
+            "nickname",
+            row["count"],
+            weight,
+            "subject",
+            node_group,
+        )
+        nickname_total += 1
+
+    weak_rows = [
+        row
+        for key, row in sorted(
+            submitters.items(), key=lambda pair: (-pair[1]["count"], pair[0])
+        )
+        if key not in used_keys
+    ]
+    weak_total = 0
+    for row in weak_rows[:STAR_WEAK_CAP]:
+        key = _star_key(row["name"])
+        if key in used_keys:
+            continue
+        used_keys.add(key)
+        add_spoke(
+            f"nickname:submitter:{key}",
+            row["name"],
+            "nickname",
+            row["count"],
+            STAR_WEAK_WEIGHT,
+            "submitter",
+            "",
+            True,
+        )
+        weak_total += 1
+
+    return {
+        "ok": True,
+        "person": {
+            "person_id": snapshot["person_id"],
+            "target_user_id": snapshot["primary_user_id"],
+            "display_name": display,
+            "avatar_sha": snapshot["avatar_sha"],
+            "groups": sorted(groups),
+            "total": total_quotes,
+        },
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "aliases": alias_total,
+            "nicknames": nickname_total,
+            "weak": weak_total,
+            "groups": len(groups),
+            "quotes": total_quotes,
+            "last_updated": max(last_ts, snapshot["updated_at"]),
+        },
+    }
+
+
+def star_index(group_id: str = "", limit: int = STAR_INDEX_DEFAULT) -> dict:
+    """可建图的人物列表：每个人物的俗名数 / 昵称数 / 语录数 / 群数。"""
+    gid = str(group_id or "").strip()
+    try:
+        cap = max(1, min(STAR_INDEX_MAX, int(limit or STAR_INDEX_DEFAULT)))
+    except (TypeError, ValueError):
+        cap = STAR_INDEX_DEFAULT
+    rows: list = []
+    with IDENTITY._lock:
+        state = IDENTITY._load_locked()
+        users = state.get("users") or {}
+        persons = state.get("persons") or {}
+        for person_id, person in persons.items():
+            if not isinstance(person, dict):
+                continue
+            uids = [
+                uid
+                for uid in (person.get("user_ids") or [])
+                if isinstance(users.get(uid), dict)
+            ]
+            if not uids:
+                continue
+            if gid and not any(
+                gid in ((users.get(uid) or {}).get("groups") or {}) for uid in uids
+            ):
+                continue
+            primary = max(
+                uids,
+                key=lambda item: float((users.get(item) or {}).get("last_seen") or 0.0),
+            )
+            display = IDENTITY._preferred_name_locked(state, primary, gid)
+            if not display:
+                display = identity_latest_name(users.get(primary) or {}) or primary
+            display_key = _star_key(display)
+            alias_rows = _star_alias_rows(state, uids, gid)
+            alias_keys = {row["key"] for row in alias_rows if row["key"] != display_key}
+            avatar_sha = ""
+            last_seen = 0.0
+            groups = set()
+            for uid in uids:
+                user = users.get(uid) or {}
+                last_seen = max(last_seen, float(user.get("last_seen") or 0.0))
+                groups.update((user.get("groups") or {}).keys())
+                if not avatar_sha and user.get("current_avatar"):
+                    avatar_sha = str(user["current_avatar"])
+            if gid:
+                groups = {gid}
+            rows.append(
+                {
+                    "person_id": person_id,
+                    "target_user_id": primary,
+                    "display_name": display,
+                    "avatar_sha": avatar_sha,
+                    "groups": sorted(groups),
+                    "aliases": len(alias_keys),
+                    "nicknames": 0,
+                    "quotes": 0,
+                    "last_seen": last_seen,
+                    "user_ids": uids,
+                    "_display_key": display_key,
+                    "_alias_keys": alias_keys,
+                }
+            )
+    quote_counts: dict = {}
+    nickname_keys: dict = {}
+    quote_groups: dict = {}
+    for item_gid, _name, info in _star_iter_items(gid):
+        subject_uid = str(info.get("subject_user_id") or "").strip()
+        if not subject_uid:
+            continue
+        quote_counts[subject_uid] = quote_counts.get(subject_uid, 0) + 1
+        quote_groups.setdefault(subject_uid, set()).add(item_gid)
+        subject_key = _star_key(info.get("subject_name"))
+        if subject_key:
+            nickname_keys.setdefault(subject_uid, set()).add(subject_key)
+    items: list = []
+    for row in rows:
+        uids = row.pop("user_ids")
+        display_key = row["_display_key"]
+        alias_keys = row["_alias_keys"]
+        quotes = sum(int(quote_counts.get(uid, 0)) for uid in uids)
+        nickname_set = set()
+        groups = set(row["groups"])
+        for uid in uids:
+            nickname_set.update(nickname_keys.get(uid, set()))
+            groups.update(quote_groups.get(uid, set()))
+        nickname_set -= alias_keys
+        if display_key:
+            nickname_set.discard(display_key)
+        row.pop("_display_key", None)
+        row.pop("_alias_keys", None)
+        row["nicknames"] = len(nickname_set)
+        row["quotes"] = quotes
+        row["groups"] = sorted(groups)
+        items.append(row)
+    items.sort(
+        key=lambda row: (
+            -int(row["quotes"]),
+            -int(row["aliases"]),
+            str(row["display_name"]),
+        )
+    )
+    return {"ok": True, "total": len(items), "items": items[:cap]}
+
+
+
 def warm_avatar_thumbs_sync(limit: int = 120) -> dict:
     """把尚未生成的头像缩略图批量落到 avatars_thumb，避免打开弹层时现场缩放。"""
     if PILImage is None:

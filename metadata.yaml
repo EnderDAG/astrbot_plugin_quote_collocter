@@ -53,6 +53,8 @@ desc: |
 
   完整版本历史见 [CHANGELOG.md](https://github.com/EnderDAG/astrbot_plugin_quote_collocter/blob/main/CHANGELOG.md)。
 
+  **v3.2.0**：人物关系星图——以一个人物为中心，把已确认俗名（别名）、群昵称变体与最常投稿的群友画成可拖拽 / 缩放的 Canvas 星图；悬停可看来源、群号、次数与置信度；新增 `identity/star_map`、`identity/star_index` 两个 Web API。
+
   **v3.1.0**：语录统计新增表情回应 / 评论图形化图表——情绪分布环形图、获赞 / 评论最多语录条形图、近 30 天回应 / 评论趋势折线。
 
   **v3.0.9**：修复 v3.0.8 语录重复发送——直发成功后的回退结果不再重复交给消息管线。
@@ -83,7 +85,7 @@ help: |
   开启群设置里的「让 AI 记住发过的语录」「允许 AI 语义召回并发送」后，机器人可以按语义检索并发送语录。
 
   数据保存在 data/plugin_data/quote_collocter/（quote.db 与 quotes_data/ 图片），备份整个目录即可。
-version: v3.1.0
+version: v3.2.0
 author: enderdag
 repo: https://github.com/EnderDAG/astrbot_plugin_quote_collocter
 astrbot_version: ">=4.17,<5"

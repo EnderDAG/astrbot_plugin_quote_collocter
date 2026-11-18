@@ -1,3 +1,12 @@
+## v3.2.0（2026-11-18）
+
+人物关系星图：俗名 / 群昵称 / 投稿人如何指向同一个人。
+
+- 新增 `quote_identity.star_map()` / `quote_identity.star_index()`：以人物为中心构图，外圈为已确认俗名（manual / learned / merge，带置信度）、群昵称变体（按归一化合并计数去重）与最常投稿的群友（弱节点）；所有边只连中心，不跨人物；合并后的多个 QQ 归在同一个 person 下。
+- 新增 Web API：`/quote_collocter/identity/star_map`、`/quote_collocter/identity/star_index`，字段与 DSH 版 dsh-quote-archive 对齐（person / nodes / edges / stats）。
+- 管理页「语录人物」新增三个入口：人物卡片「星图」、人物详情「关系星图」、模块顶部「人物星图」；星图为纯 Canvas 2D 手写绘制——俗名按来源配色（manual 柠檬绿 / learned 琥珀 / merge 灰）、群昵称白底墨线、投稿人弱节点虚线，悬停高亮并显示来源、群号、次数与置信度，支持拖拽平移与滚轮缩放，空数据有友好提示。
+- 零新增依赖：不引入任何前端图形库，也不依赖 LLM 或嵌入模型。
+
 ## v3.1.0（2026-11-16）
 
 语录统计：表情回应 / 引用评论图形化图表。

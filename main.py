@@ -547,6 +547,18 @@ class Quote_Plugin(Star):
             "已绑定昵称的形近变体聚类（同一人被读错的名字）",
         )
         route(
+            "identity/star_map",
+            self.api_identity_star_map,
+            ["GET"],
+            "人物关系星图：俗名 / 群昵称 / 投稿人如何指向同一个人",
+        )
+        route(
+            "identity/star_index",
+            self.api_identity_star_index,
+            ["GET"],
+            "可建图的人物列表：俗名数 / 昵称数 / 语录数",
+        )
+        route(
             "identity/cluster_merge",
             self.api_identity_cluster_merge,
             ["POST"],
@@ -3383,6 +3395,48 @@ class Quote_Plugin(Star):
             logger.error(f"[quote] 昵称变体聚类失败：{exc}", exc_info=True)
             return error_response(f"昵称变体聚类失败：{exc}", status_code=500)
         return json_response({"group_id": gid, **payload})
+
+    async def api_identity_star_map(self):
+        query = request.query
+        person_id = str(query.get("person_id") or query.get("pid") or "").strip()
+        user_id = str(query.get("user_id") or "").strip()
+        if not person_id and not user_id:
+            return error_response("缺少 person_id 或 user_id", status_code=400)
+        try:
+            gid = safe_group_id(query.get("group_id")) if query.get("group_id") else ""
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        try:
+            max_nodes = max(1, min(400, int(query.get("max_nodes") or 120)))
+        except (TypeError, ValueError):
+            max_nodes = 120
+        try:
+            payload = await asyncio.to_thread(
+                star_map, person_id, user_id, gid, max_nodes
+            )
+        except Exception as exc:
+            logger.error(f"[quote] 人物星图构建失败：{exc}", exc_info=True)
+            return error_response(f"人物星图构建失败：{exc}", status_code=500)
+        if not payload.get("ok"):
+            return error_response(str(payload.get("error") or "人物不存在"), status_code=404)
+        return json_response(payload)
+
+    async def api_identity_star_index(self):
+        query = request.query
+        try:
+            gid = safe_group_id(query.get("group_id")) if query.get("group_id") else ""
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        try:
+            limit = max(1, min(500, int(query.get("limit") or 200)))
+        except (TypeError, ValueError):
+            limit = 200
+        try:
+            payload = await asyncio.to_thread(star_index, gid, limit)
+        except Exception as exc:
+            logger.error(f"[quote] 人物星图索引失败：{exc}", exc_info=True)
+            return error_response(f"人物星图索引失败：{exc}", status_code=500)
+        return json_response(payload)
 
     async def api_identity_cluster_merge(self):
         body = await request.json(default={}) or {}
